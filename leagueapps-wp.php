@@ -90,6 +90,8 @@ add_action(
 	}
 );
 
+add_action( 'init', array( 'LeagueAppsWP\\Presentation\\TeamsBlock', 'register' ) );
+
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	require_once LAWP_DIR . 'cli/commands.php';
 }

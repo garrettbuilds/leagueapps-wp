@@ -1,0 +1,33 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "leagueapps-wp/teams",
+	"title": "LeagueApps Teams",
+	"category": "widgets",
+	"icon": "groups",
+	"description": "Registered teams grouped by division, from your validated local cache. Never calls LeagueApps from a visitor's browser.",
+	"keywords": [ "leagueapps", "teams", "divisions", "roster", "league" ],
+	"textdomain": "leagueapps-wp",
+	"supports": {
+		"html": false,
+		"anchor": true,
+		"align": [ "wide", "full" ],
+		"spacing": { "margin": true, "padding": true },
+		"color": { "text": true, "background": true, "link": true },
+		"typography": { "fontSize": true, "lineHeight": true }
+	},
+	"attributes": {
+		"eventKey":        { "type": "string",  "default": "" },
+		"heading":         { "type": "string",  "default": "" },
+		"headingLevel":    { "type": "number",  "default": 2 },
+		"showJumpLinks":   { "type": "boolean", "default": true },
+		"showCounts":      { "type": "boolean", "default": false },
+		"showCaptain":     { "type": "boolean", "default": false },
+		"showLastUpdated": { "type": "boolean", "default": true },
+		"showEmpty":       { "type": "boolean", "default": false },
+		"sourceUrl":       { "type": "string",  "default": "" },
+		"sourceLabel":     { "type": "string",  "default": "" }
+	},
+	"editorScript": "file:./editor.js",
+	"style": "file:./style.css"
+}

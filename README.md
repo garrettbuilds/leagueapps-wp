@@ -12,7 +12,7 @@ structure. If something in here still does, that is a bug — please open an iss
 - Reads registrations from your LeagueApps Site and derives a team list from them
 - Groups teams by division, handling **both** LeagueApps division models
 - Caches the result in your own database, so visitors never wait on an API call
-- Renders through a Gutenberg block you place on any page you choose
+- Renders through a Gutenberg block, or a shortcode for any other builder
 - Refuses to publish anything it cannot verify
 
 ## What it deliberately does not do
@@ -101,6 +101,7 @@ These exist because each one describes a way a public page can become wrong.
 
 | | |
 |---|---|
+| [BLOCK.md](docs/BLOCK.md) | The Teams block and shortcode, and what the editor offers |
 | [DIVISIONS.md](docs/DIVISIONS.md) | Both division models, and why the map is configuration |
 | [DRY-RUN.md](docs/DRY-RUN.md) | What a dry run proves, and the exit codes |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Wizard, blocks, and which setting lives where |
@@ -115,7 +116,7 @@ These exist because each one describes a way a public page can become wrong.
 composer install && composer test
 ```
 
-99 tests, no WordPress, no database, no network.
+115 tests, no WordPress, no database, no network.
 
 ## Licence
 

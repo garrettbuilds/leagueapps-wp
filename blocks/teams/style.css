@@ -1,0 +1,106 @@
+/*
+ * Deliberately close to unstyled.
+ *
+ * This ships inside somebody else's theme, so it sets structure and leaves
+ * colour, type and spacing to the theme. Everything here is either a layout
+ * rule the markup cannot express, or an accessibility floor.
+ *
+ * currentColor throughout: the block inherits whatever the theme sets, and
+ * inherits it correctly on a dark background too.
+ */
+
+.lawp-teams__jump-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0 0 1.5rem;
+	padding: 0;
+	list-style: none;
+}
+
+.lawp-teams__jump-link {
+	display: inline-block;
+
+	/*
+	 * 24px is WCAG 2.2 SC 2.5.8, the floor for a pointer target. A pill of text
+	 * in a wrapped row measures about 21px on its own line-height, which fails.
+	 * These four rules are the difference.
+	 */
+	min-height: 24px;
+	padding: 0.35em 0.75em;
+	line-height: 1.4;
+
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	text-decoration: none;
+}
+
+.lawp-teams__jump-link:hover,
+.lawp-teams__jump-link:focus {
+	text-decoration: underline;
+}
+
+.lawp-teams__division {
+	margin-block: 2rem;
+}
+
+.lawp-teams__division-heading {
+	/*
+	 * A jump link lands here, and a sticky header would otherwise cover it.
+	 * SC 2.4.11 exists because author sticky content hides what was just focused.
+	 */
+	scroll-margin-top: 2rem;
+}
+
+.lawp-teams__scroll {
+	overflow-x: auto;
+	/* Keeps a focus ring inside a table that scrolls, rather than clipping it. */
+	padding-block: 2px;
+}
+
+.lawp-teams__table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.lawp-teams__table th,
+.lawp-teams__table td {
+	padding: 0.6em 0.75em;
+	text-align: left;
+	border-bottom: 1px solid currentColor;
+	/* The hairline is the only borrowed colour, and 0.15 keeps it a rule
+	   rather than a line competing with the text. */
+	border-bottom-color: color-mix( in srgb, currentColor 15%, transparent );
+}
+
+.lawp-teams__table th[scope="col"] {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.lawp-teams__count {
+	/* Digits in a column line up only with tabular figures. */
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.lawp-teams__updated {
+	margin-top: 1.5rem;
+	font-size: 0.875em;
+	opacity: 0.8;
+}
+
+.lawp-teams .screen-reader-text {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset( 50% );
+	white-space: nowrap;
+}
+
+@media ( prefers-reduced-motion: no-preference ) {
+	html {
+		scroll-behavior: smooth;
+	}
+}

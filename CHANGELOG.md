@@ -2,9 +2,20 @@
 
 ## 0.2.0
 
-Restructured around a plan/apply split, with a test suite.
+Restructured around a plan/apply split, with a test suite, and a front end.
 
 ### Added
+
+- **A Teams block and a matching shortcode**, sharing one renderer. Core blocks
+  and core markup, so it renders the same under any theme or builder. No build
+  step: the editor script is plain JavaScript, and the file in the repo is the
+  file that runs.
+- Editor controls appear only for capabilities measured from the cache. A
+  tournament where only managers register does not get a player-count toggle that
+  would print a column of 1s.
+- Three distinct empty states, none of which prints a technical reason.
+- View cache keyed by event generation, so a stale entry is unreachable rather
+  than merely unwanted.
 
 - `SyncPlanner` builds an immutable `SyncPlan`; `SyncApplier` consumes one. A dry
   run is the planner plus a report, so there is no second preview implementation
