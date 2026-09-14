@@ -1,18 +1,7 @@
-# Never commit. This plugin handles data about real people.
+vendor/
+.phpunit.cache/
+composer.lock
 *.p12
 *.pem
 *.key
-*.pfx
-*credential*
-*secret*
-.env
-.env.*
-
-# LeagueApps exports
-*SiteMembers*.csv
-*Registrations*.xlsx
-/exports/
-
 .DS_Store
-node_modules/
-vendor/

@@ -94,3 +94,53 @@ Asked of LeagueApps support, unanswered at time of writing:
 4. What are the rate limits?
 5. Is `jwt-bearer` being deprecated in favour of the flow the discovery document advertises?
 6. Can one key read a second site, or does each need its own?
+
+## The "public API key" does not open these endpoints
+
+Third-party guides — and some LeagueApps material — describe a public API key that
+reads public program and team data. Tested against two Sites with a freshly
+generated public key, that path does not authenticate the export endpoints. Every
+variation returned the same `Invalid API Key` response, identically for a real
+key, a fabricated key, and no key at all.
+
+An error that does not change when the input changes is not telling you the key is
+wrong. It is telling you the parameter is not being read.
+
+**What works is OAuth 2.0 with an RS256 JWT bearer grant**, signed with the `.p12`
+certificate issued alongside a Private API Key. That is the only authentication in
+this plugin.
+
+Two consequences worth stating plainly:
+
+- Public team data still requires a private credential. Plan for a server-side
+  credential path, not a key in a settings field.
+- Any design premised on browser-side or keyless reads does not apply here.
+
+## There is no schedules or standings endpoint
+
+Probed across two Sites with two keys: `schedule`, `schedules`, `games`,
+`standings`, `results`, `scores`, `teams`, `divisions`, `brackets`, `pools` and
+`events` all 404.
+
+Teams are derived from registrations, because every registration carries the team
+it belongs to. Schedules and standings are not available at all.
+
+This is why the block editor shows no schedule or standings controls. They are not
+unfinished features — the data is not there to read.
+
+## A 200 is not evidence of an endpoint
+
+The league subdomain serves an HTML page with a 200 for any path, including
+nonsensical ones. Probing for endpoints by status code will produce a list of
+endpoints that do not exist.
+
+Check the content type and require a JSON array of rows before treating a response
+as a read. `not_json` is a distinct termination reason in this plugin for exactly
+this.
+
+## The guard that has now cost twice
+
+The host allowlist matched `leagueapps.com`. The API is on `leagueapps.io`.
+
+Same class of mistake twice in this project: a check written against the domain
+somebody had in front of them rather than the one the code actually calls.

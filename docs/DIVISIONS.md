@@ -1,112 +1,155 @@
 # Divisions
 
-The one thing that varies most between LeagueApps Sites. Read this before changing the
-detector.
+The single thing that varies most between LeagueApps Sites, and the thing this
+plugin was rewritten to stop assuming.
 
-## LeagueApps supports two models, and this plugin handles both
+## Two models, both real
 
-### Divisions inside one Program
+LeagueApps supports divisions two ways, and a Site may use either or both.
 
-The organiser enables Divisions on a Program and assigns Teams to them. The Registration then
-carries an explicit `division` value.
+| Model | What it looks like | Where the division is |
+|---|---|---|
+| **Divisions inside one program** | One "Summer Classic 2026" program, teams assigned to A, B, C | The registration's `division` field |
+| **A separate program per division** | "Summer Classic 2026 (C Division)" as its own program | The program's name |
 
-```
-Program:   Summer Classic 2026
-Divisions: A, B, C, D, E, Women's, Legends
-```
+Both are ordinary configurations. Which one a Site uses depends on whether the
+groups need different registration, pricing, forms, deadlines, or staff
+permissions — separate programs when they do, divisions when they do not.
 
-This is usually the better configuration when the groups share registration, pricing and rules,
-and it gives you one Program ID to integrate against instead of seven.
+**Do not restructure a Site to suit this plugin.** It reads whatever is there.
 
-### A separate Program per Division
-
-Each Division is its own Program, and the Division name lives inside the Program name.
+## Order of authority
 
 ```
-2026 Summer Classic (C Division)      TOURNAMENT, one parent plus a child per Division
-Open D Division Fall 2026            LEAGUE, free-standing per Season
+1. The `division` field, when set. Explicit, set by the organiser, always wins.
+2. The program name, when the field is empty. This is inference.
+3. Neither matched -> the team is HELD, never guessed.
 ```
 
-This is what you get when Divisions genuinely differ in dates, pricing, forms or ownership, and
-it is also what many older Sites have simply because it predates in-Program Divisions.
-
-## How the plugin decides
-
-In order of authority:
-
-1. **The `division` field**, when set. Explicit, chosen by the organiser, always wins.
-2. **The Program name**, when the field is empty. Inference, and only a fallback.
+The third case is the one that matters most. A `division` value that is set but
+**unrecognised** is not the same as no value at all:
 
 ```php
-LAWP_Divisions::detect( $program_name, $division_field );
-// returns [ 'key', 'label', 'order', 'source' => 'division_field' | 'program_name' ]
+if ( '' !== $explicit ) {
+    $key = $this->map->find_in( $explicit );
+    if ( null !== $key ) {
+        return DivisionMatch::known( ... );
+    }
+
+    // Do NOT fall back to the program name. The organiser named something
+    // specific, and inferring past it publishes the team in a division
+    // nobody put it in.
+    return DivisionMatch::unrecognised( $explicit, 'division_field' );
+}
 ```
 
-**If the field is set but unrecognised, the Team is held, not guessed.** The organiser said
-something specific; falling back to the Program name would override a deliberate choice and put
-a Team somewhere it did not ask to be.
+Deleting that fallback guard fails 7 tests.
 
-Run `wp leagueapps discover` against a new Site. It reports which model is in use, what
-percentage of Registrations carry the field, which Divisions exist, and which Programs would be
-skipped, so an administrator confirms the mapping instead of the plugin assuming one.
+## Run discovery first
 
-## Program names are inconsistent across a decade
+```bash
+wp leagueapps discover --site=1234
+```
 
-Real names from two live Sites:
+It reports which model the Site uses, every division value with a team count, and
+everything the current map does not match.
+
+The threshold is generous in both directions and anything between is reported as
+`mixed` rather than forced into an answer. Measured across two live Sites the
+`division` field is populated **0%** and **11%** of the time — and 11% is not
+"uses in-program divisions" or "does not". It is a Site that does both and needs
+a person to look.
+
+## The map is configuration, not code
+
+This started as a hardcoded list of A through E, Women's and Legends, which is one
+league's vocabulary and nobody else's. A public plugin cannot ship that as a
+constant.
+
+So the map is data. Discovery proposes, an operator confirms a public label and
+order, and `DivisionMap` is built from the result. `presets/` holds starting
+points, and nothing loads one unless somebody picks it.
+
+```php
+array(
+    'key'     => 'legends',
+    'label'   => 'Legends Division',
+    'order'   => 80,
+    'aliases' => array( 'legends d', 'legends', 'masters', 'master' ),
+    'visible' => true,
+)
+```
+
+## Aliases match longest first
+
+This is load-bearing, not an optimisation.
+
+`"Legends D"` contains `"d"`. `"A/B"` contains `"a"`. `"Open C"` contains `"c"`.
+Matching in declaration order meant hand-ordering the map so compound entries came
+before single letters — which worked for one league and broke silently the first
+time somebody added an entry in the wrong place.
+
+Longest-first makes the ordering a property of the data. A map can now be written
+in any order.
+
+## Word boundaries, not substrings
 
 ```
-2026 Summer Classic (C Division)      Division in brackets, year first
-Open D Division Fall 2026            Division first, Season last
-2019 Spring Open D Division          year first, Season second
+"2022 Open End of Season Tournament"
+```
+
+contains `"open e"` and was read as E Division. Boundary-matched, it is not a
+division at all.
+
+```php
+'/(?<![a-z0-9])' . preg_quote( $alias, '/' ) . '(?![a-z0-9])/'
+```
+
+The look-arounds exclude letters and digits but not `/` or `-`, so `a/b` and
+`legends-d` still match. Removing them fails 11 tests.
+
+Found by a test, not in production. That is the argument for the test.
+
+## Real variation this handles
+
+Every one of these appears in live data:
+
+```
+2026 Summer Classic (C Division)     tournament, division in brackets
+Open D Division Fall 2026            league, season last
+2019 Spring Open D Division          league, season first
 Spring 2018 Womens Division          no apostrophe
-Spring 2017 Women Division           singular
-Spring 2016 Open Masters Division    the old name for Legends
-Spring 2017 Open Master Division     the old name, singular
+Spring 2026 Women's Division         curly apostrophe
+Open Master Division 2015            singular, and an old name
+2016 Fall Masters Division           plural, same division
+Legends D                            graded, same division
 ```
 
-So the detector matches the Division token **wherever it appears**, rather than assuming a
-position. Verified against all 227 Program names across both Sites.
+Apostrophes are normalised, so `Women's`, `Women's` and `Womens` all land in one
+place. An operator typing an alias will use whichever their keyboard produces.
 
-## Naming rules encoded here
+### Renamed divisions collapse
 
-**Masters is Legends.** The Division was renamed. Older Programs still say Masters, singular and
-plural, and all map to Legends rather than splitting a decade of history across two labels.
+A league that renamed Masters to Legends has both in its history, and may also
+carry "Legends D" from when it was graded. The preset collapses all of them, so a
+decade of programs sits under one heading instead of splitting across
+near-duplicate labels.
 
-**Legends D is just Legends.** Source data carries `Legends D Division`, `Legends`, `Masters D`
-and `Master`. In practice it is called Legends, so all collapse to one. If a Site runs Legends
-*and* Legends D as genuinely separate competitions, split the entry in
-`class-lawp-divisions.php`.
+If a Site genuinely runs Legends **and** Legends D as separate competitions, split
+the entry into two. Ours does not.
 
-**Word boundaries, not substrings.** `2022 Open End of Season Tournament` contains `open e` and
-was being read as E Division. Caught by a test, which is the argument for keeping the test.
+## Cross-division play
 
-## What is skipped, and why that is correct
+LeagueApps documents Cross-Program Games between teams in different programs, with
+a program setting controlling whether those results count toward standings. Within
+one program using internal divisions, the scheduling behaviour is less clearly
+documented — verify it in the admin before relying on it.
 
-Programs matching no Division are skipped. Across two Sites that is 14 of 67 and 18 of 160:
+None of this affects the plugin today, because there is no schedule or standings
+endpoint to read. When there is, the schema must not assume `home division ==
+away division`: store a division per side and a game type, and display the
+official classification rather than inferring one.
 
-```
-2017 Open (Association) Tournament        an external tournament
-Free Agents                          a holding Program, not a Division
-Fall 2016 Open D1 Division           a short-lived split of D
-2019 End of Season - Open Division   a post-season event
-Spring 2019 Ratings Clinics          not competition at all
-FB Test / 2020 TEST                  somebody testing the platform
-```
-
-**Skipped, never bucketed into "Other".** A Team shown in the wrong Division is worse than a
-Team not shown, and an "Other" heading on a public page invites somebody to fix the data by
-hand instead of fixing the Program name.
-
-## Adding a Division
-
-```php
-'f' => array(
-    'label' => 'F Division',
-    'order' => 65,
-    'match' => array( 'open f', 'f division', 'division f', 'f' ),
-),
-```
-
-Then add the key to the ordering pass in `match_text()`. **Longer, more specific aliases must be
-tested before shorter ones**, which is why `legends` and `womens` are checked before the single
-letters: otherwise `Legends D` matches `d`.
+Do not calculate standings in WordPress. Tie-breaks, forfeits, crossovers and
+bracket play all change the answer, and a table that disagrees with the official
+one is worse than no table.

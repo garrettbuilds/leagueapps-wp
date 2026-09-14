@@ -40,6 +40,17 @@ final class LAWP_Reader {
 	private $calls = 0;
 	private $last_error = '';
 
+	/*
+	 * HOW THE LAST READ ENDED, which is not the same question as whether it
+	 * errored. A read that stops at the page cap returns rows and no error, and
+	 * treating that as the whole list is how a public page loses half its teams.
+	 * 'exhausted' is the only value that means "there is no more".
+	 */
+	private $terminated_because = 'exhausted';
+	private $pages_read = 0;
+	private $retry_after = null;
+	private $http_status = null;
+
 	public function __construct( LAWP_Auth $auth, $site_id ) {
 		$this->auth    = $auth;
 		$this->site_id = (int) $site_id;
@@ -47,6 +58,11 @@ final class LAWP_Reader {
 
 	public function calls() { return $this->calls; }
 	public function last_error() { return $this->last_error; }
+	public function terminated_because() { return $this->terminated_because; }
+	public function pages_read() { return $this->pages_read; }
+	public function retry_after() { return $this->retry_after; }
+	public function http_status() { return $this->http_status; }
+	public function complete() { return 'exhausted' === $this->terminated_because; }
 
 	public function registrations( $since_ms = 0, $max_pages = 50 ) {
 		return $this->fetch_all( 'registrations', $since_ms, $max_pages );
@@ -80,7 +96,8 @@ final class LAWP_Reader {
 	 */
 	private function fetch_all( $which, $since_ms, $max_pages ) {
 		if ( ! isset( self::$endpoints[ $which ] ) ) {
-			$this->last_error = "no such endpoint: $which";
+			$this->last_error         = "no such endpoint: $which";
+			$this->terminated_because = 'no_such_endpoint';
 			return null;
 		}
 
@@ -88,26 +105,45 @@ final class LAWP_Reader {
 		$last_id = 0;
 		$seen    = array();
 
+		$this->terminated_because = 'page_cap';
+		$this->pages_read         = 0;
+		$this->retry_after        = null;
+		$this->http_status        = null;
+
 		for ( $page = 0; $page < $max_pages; $page++ ) {
 			$batch = $this->fetch_page( $which, $since_ms, $last_id );
-			if ( null === $batch ) { return null; }
-			if ( ! $batch ) { break; }
+
+			// fetch_page has already set terminated_because for its own failures.
+			if ( null === $batch ) { return $out; }
+
+			$this->pages_read++;
+
+			if ( ! $batch ) { $this->terminated_because = 'exhausted'; break; }
 
 			$out = array_merge( $out, $batch );
 
 			$ids = array_filter( array_map( function ( $r ) { return isset( $r['id'] ) ? (int) $r['id'] : 0; }, $batch ) );
-			if ( ! $ids ) { break; }
+
+			if ( ! $ids ) {
+				// A full page with no usable ids means the cursor cannot advance
+				// and we cannot prove we have everything.
+				$this->terminated_because = count( $batch ) < 1000 ? 'exhausted' : 'cursor_stalled';
+				$this->last_error         = 'cursor_stalled' === $this->terminated_because ? 'a full page carried no row ids, so the cursor cannot advance' : '';
+				break;
+			}
 
 			$next = max( $ids );
 			if ( isset( $seen[ $next ] ) || $next <= $last_id ) {
-				// The cursor is not advancing. Stop rather than loop.
-				$this->last_error = 'pagination cursor did not advance; stopped to avoid looping';
+				// The cursor is not advancing. Stop rather than loop forever.
+				$this->terminated_because = 'cursor_stalled';
+				$this->last_error         = 'pagination cursor did not advance; stopped to avoid looping';
 				break;
 			}
+
 			$seen[ $next ] = true;
 			$last_id       = $next;
 
-			if ( count( $batch ) < 1000 ) { break; }
+			if ( count( $batch ) < 1000 ) { $this->terminated_because = 'exhausted'; break; }
 		}
 
 		return $out;
@@ -131,31 +167,53 @@ final class LAWP_Reader {
 
 		if ( is_wp_error( $res ) ) {
 			$this->last_error = $res->get_error_message();
+			// A cURL timeout and a DNS failure arrive the same way. Both mean we
+			// do not know what we did not read.
+			$this->terminated_because = false !== stripos( $this->last_error, 'timed out' ) ? 'timeout' : 'http_error';
 			return null;
 		}
 
-		$code = wp_remote_retrieve_response_code( $res );
+		$code              = wp_remote_retrieve_response_code( $res );
+		$this->http_status = $code;
 
 		if ( 401 === $code ) {
 			// Token likely expired mid-run. Drop it; let the caller retry once.
 			$this->auth->forget();
-			$this->last_error = 'unauthorised; token discarded';
+			$this->last_error         = 'unauthorised; token discarded';
+			$this->terminated_because = 'http_error';
 			return null;
 		}
 
 		if ( 429 === $code ) {
-			$retry = (int) wp_remote_retrieve_header( $res, 'retry-after' );
-			$this->last_error = 'rate limited' . ( $retry ? ", retry after {$retry}s" : '' );
+			$retry                    = (int) wp_remote_retrieve_header( $res, 'retry-after' );
+			$this->retry_after        = $retry ?: null;
+			$this->last_error         = 'rate limited' . ( $retry ? ", retry after {$retry}s" : '' );
+			$this->terminated_because = 'rate_limited';
 			return null;
 		}
 
 		if ( 200 !== $code ) {
-			$body = json_decode( wp_remote_retrieve_body( $res ), true );
-			$this->last_error = sprintf( 'HTTP %d%s', $code, isset( $body['message'] ) ? ' ' . $body['message'] : '' );
+			$body                     = json_decode( wp_remote_retrieve_body( $res ), true );
+			$this->last_error         = sprintf( 'HTTP %d%s', $code, isset( $body['message'] ) ? ' ' . $body['message'] : '' );
+			$this->terminated_because = 'http_error';
 			return null;
 		}
 
+		/*
+		 * A 200 is not evidence of an endpoint.
+		 *
+		 * The league subdomain serves an HTML page with a 200 for any path,
+		 * including nonsensical ones. So the body has to be JSON, and an array
+		 * of rows, before this counts as a read at all.
+		 */
 		$rows = json_decode( wp_remote_retrieve_body( $res ), true );
-		return is_array( $rows ) ? $rows : array();
+
+		if ( ! is_array( $rows ) ) {
+			$this->last_error         = 'the response was not JSON';
+			$this->terminated_because = 'not_json';
+			return null;
+		}
+
+		return $rows;
 	}
 }

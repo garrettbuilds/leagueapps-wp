@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!--
+	Two suites, deliberately separate.
+
+	"unit" needs no WordPress, no database and no network: the planner and the
+	normalisers are ordinary PHP classes. That is the suite you run on every save.
+
+	"integration" needs the WordPress test library bootstrapped and covers only
+	what WordPress itself owns: the $wpdb repository, options sanitising,
+	capabilities, and block output.
+-->
+<phpunit
+	bootstrap="tests/bootstrap.php"
+	colors="true"
+	failOnRisky="true"
+	failOnWarning="true"
+	cacheDirectory=".phpunit.cache"
+	beStrictAboutOutputDuringTests="true">
+	<testsuites>
+		<testsuite name="unit">
+			<directory>tests/Unit</directory>
+		</testsuite>
+		<testsuite name="integration">
+			<directory>tests/Integration</directory>
+		</testsuite>
+	</testsuites>
+	<source>
+		<include>
+			<directory suffix=".php">src</directory>
+		</include>
+	</source>
+</phpunit>
