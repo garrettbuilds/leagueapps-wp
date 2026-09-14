@@ -59,6 +59,26 @@ Restructured around a plan/apply split, with a test suite, and a front end.
 - Requires PHP 8.1, up from 7.4, for readonly properties. A plan that can be
   mutated after it was validated is not a plan.
 
+## 0.3.0
+
+An admin screen, so the plugin is usable by whoever inherits the site.
+
+### Added
+
+- **LeagueApps** menu: connection status, per-event team and division counts,
+  which divisions are configured but empty, what is published, recent syncs.
+- **"A team is missing"** diagnostic. Reads live, writes nothing, and lists every
+  team the source offered with why it is not published and what to do about it.
+  Teams in completed programs are excluded, because the first version buried the
+  one real answer under several hundred historical rows.
+- Metro lookup, so a suburb publishes as the metro people recognise. More useful
+  to a reader and less identifying, since the city on a registration is the
+  registrant's home address rather than the team's.
+- Name casing for people, not for teams.
+- Payment gating, via a third field category that is read and never stored.
+- Post-write verification: a field that is hashed but not persisted is now a
+  refusal instead of a sync that repeats the same changes for ever.
+
 ## 0.1.0
 
 First release. CLI only.

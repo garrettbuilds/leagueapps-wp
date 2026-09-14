@@ -81,6 +81,7 @@ final class SyncPlanner {
 			division_report: $normalized->division_report,
 			source_meta: $validation->meta(),
 			planned_at: $planned_at,
+			skipped: $normalized->skipped,
 		);
 	}
 

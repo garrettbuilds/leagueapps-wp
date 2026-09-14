@@ -61,6 +61,43 @@ wp leagueapps discover --site=1234
 Discovery tells you how your Site is organised before you configure anything. Run
 it first. It is the difference between mapping your divisions and guessing them.
 
+## The admin screen
+
+**LeagueApps** in the sidebar. Written for whoever inherits the site, not for
+whoever installed it.
+
+It leads with whether the connection works, then for each event: how many teams
+are published, which divisions are configured but empty, what is on the public
+page, and when it last synced.
+
+Three buttons:
+
+| | |
+|---|---|
+| **Check for changes** | Reads LeagueApps and reports exactly what would change. Writes nothing. |
+| **Update the page now** | Applies it. |
+| **A team is missing** | The one that earns its place. |
+
+### "A team is missing"
+
+The question every administrator asks, and the one a plugin usually cannot
+answer: *it is in LeagueApps, why is it not on the page?*
+
+It reads live, changes nothing, and lists every team the source offered with what
+happened to it and what to do:
+
+```
+Dallas Vengeance   Registration status is SPOT_PENDING, not Spot Reserved
+                   The registration is unfinished in LeagueApps. Confirm the spot there.
+```
+
+Each row says what to DO. A reason code alone sends somebody back to whoever
+installed the plugin, which is the situation this screen exists to end.
+
+Teams in finished programs are left out. The first version reported every team the
+Site had ever had - several hundred rows from completed 2018 seasons - and the one
+team genuinely missing was lost among them.
+
 ## Sync
 
 Dry run is the default and writes nothing:
@@ -116,7 +153,7 @@ These exist because each one describes a way a public page can become wrong.
 composer install && composer test
 ```
 
-115 tests, no WordPress, no database, no network.
+184 tests, no WordPress, no database, no network.
 
 ## Licence
 

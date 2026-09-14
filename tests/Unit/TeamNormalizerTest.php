@@ -303,6 +303,81 @@ final class TeamNormalizerTest extends TestCase {
 		self::assertStringNotContainsString( 'PAYMENTSTATUS', $encoded );
 	}
 
+	/**
+	 * The question an administrator actually asks.
+	 *
+	 * "The team is in LeagueApps, why is it not on the page?" Every reason a
+	 * team is withheld has to be answerable, including the two that used to drop
+	 * the row silently.
+	 */
+	public function test_it_records_why_each_team_was_not_published(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'teamId' => 1, 'team' => 'Published Team' ) ),
+			Fixtures::row( array( 'teamId' => 2, 'team' => 'Pending Team', 'registrationStatus' => 'SPOT_PENDING' ) ),
+			Fixtures::row( array( 'teamId' => 3, 'team' => 'Other Event Team', 'programName' => '2019 Winter League (C Division)' ) ),
+		), Fixtures::config( array( 'program_filter' => 'Summer Classic' ) ) );
+
+		self::assertArrayHasKey( 1, $result->teams );
+		self::assertSame( 'NOT_HOLDING_A_SPOT', $result->skipped['2']['reason'] );
+		self::assertSame( 'SPOT_PENDING', $result->skipped['2']['detail'] );
+		self::assertSame( 'PROGRAM_NOT_IN_EVENT', $result->skipped['3']['reason'] );
+		self::assertArrayNotHasKey( '1', $result->skipped, 'a published team must not also be reported as missing' );
+	}
+
+	/**
+	 * One team, two registrations, one of them pending.
+	 *
+	 * The pending row would otherwise report the team as missing while it sits
+	 * happily on the page, which is worse than saying nothing.
+	 */
+	public function test_a_published_team_is_never_also_reported_as_skipped(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'teamId' => 7, 'team' => 'Mixed Team', 'registrationStatus' => 'SPOT_RESERVED' ) ),
+			Fixtures::row( array( 'teamId' => 7, 'team' => 'Mixed Team', 'registrationStatus' => 'SPOT_PENDING' ) ),
+		), Fixtures::config() );
+
+		self::assertArrayHasKey( 7, $result->teams );
+		self::assertSame( array(), $result->skipped );
+	}
+
+	/**
+	 * A team from a finished season is not a missing team.
+	 *
+	 * Without this the diagnostic listed several hundred teams from completed
+	 * 2018 programs, and the one team genuinely missing from the current event
+	 * was lost among them. A screen that answers the question and buries the
+	 * answer has not answered it.
+	 */
+	public function test_teams_from_completed_programs_are_not_reported_as_missing(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'teamId' => 1, 'team' => 'Current Other Program', 'programName' => '2026 Winter League', 'programState' => 'LIVE' ) ),
+			Fixtures::row( array( 'teamId' => 2, 'team' => 'Team From 2018', 'programName' => '2018 Open C Division', 'programState' => 'COMPLETED' ) ),
+			Fixtures::row( array( 'teamId' => 3, 'team' => 'Archived Team', 'programName' => '2019 Open D Division', 'programState' => 'ARCHIVED' ) ),
+		), Fixtures::config( array( 'program_filter' => 'Summer Classic' ) ) );
+
+		self::assertArrayHasKey( '1', $result->skipped, 'a running program is worth reporting' );
+		self::assertArrayNotHasKey( '2', $result->skipped );
+		self::assertArrayNotHasKey( '3', $result->skipped );
+	}
+
+	/** An unrecognised state errs towards showing the team, not hiding it. */
+	public function test_an_unknown_program_state_is_still_reported(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'teamId' => 9, 'team' => 'Odd State', 'programName' => 'Something Else', 'programState' => 'SOMETHING_NEW' ) ),
+		), Fixtures::config( array( 'program_filter' => 'Summer Classic' ) ) );
+
+		self::assertArrayHasKey( '9', $result->skipped );
+	}
+
+	/** A row with no team is a free agent, not a missing team. */
+	public function test_a_free_agent_row_is_not_reported_as_a_missing_team(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'teamId' => '', 'team' => '', 'role' => 'FREEAGENT', 'registrationStatus' => 'SPOT_PENDING' ) ),
+		), Fixtures::config() );
+
+		self::assertSame( array(), $result->skipped );
+	}
+
 	/** The privacy boundary, asserted rather than trusted. */
 	public function test_denylisted_fields_never_reach_a_team(): void {
 		$result = $this->normalizer()->normalize( array( Fixtures::row( array(

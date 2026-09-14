@@ -35,6 +35,16 @@ final class SyncPlan {
 		public readonly array $division_report = array(),
 		public readonly array $source_meta = array(),
 		public readonly string $planned_at = '',
+		/**
+		 * Teams the source offered and this run did not publish, with why.
+		 *
+		 * Carried all the way to the admin screen because "it is in LeagueApps
+		 * but not on the page" is the question every administrator asks, and a
+		 * plan that cannot answer it sends them to read raw exports.
+		 *
+		 * @var array<string,array{team:string,reason:string,detail:string}>
+		 */
+		public readonly array $skipped = array(),
 	) {}
 
 	/**

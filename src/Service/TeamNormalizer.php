@@ -34,6 +34,7 @@ final class TeamNormalizer {
 		$validation = new ValidationResult();
 		$grouped    = array();
 		$excluded    = array();
+		$skipped    = array();
 		$seen_divisions = array();
 
 		foreach ( $rows as $raw ) {
@@ -43,6 +44,20 @@ final class TeamNormalizer {
 			$program_name = (string) ( $row['programName'] ?? '' );
 
 			if ( ! $this->in_scope( $config, $program_id, $program_name ) ) {
+				/*
+				 * Only report a team from a program that is still running.
+				 *
+				 * The first version reported every team the Site had ever had.
+				 * On a ten-year-old Site that is several hundred rows from
+				 * completed 2018 seasons, and the one team that genuinely was
+				 * missing sat somewhere in the middle of them. A team in a
+				 * finished program is not missing from this page; it belongs to
+				 * a different era.
+				 */
+				if ( ! self::is_finished( $row ) ) {
+					self::note_skip( $skipped, $row, 'PROGRAM_NOT_IN_EVENT', $program_name );
+				}
+
 				continue;
 			}
 
@@ -50,6 +65,7 @@ final class TeamNormalizer {
 			// waitlisted entry is not a team in the event yet, and publishing
 			// one tells a visitor something untrue.
 			if ( 'SPOT_RESERVED' !== strtoupper( (string) ( $row['registrationStatus'] ?? '' ) ) ) {
+				self::note_skip( $skipped, $row, 'NOT_HOLDING_A_SPOT', (string) ( $row['registrationStatus'] ?? '(none)' ) );
 				continue;
 			}
 
@@ -214,7 +230,18 @@ final class TeamNormalizer {
 
 		ksort( $teams );
 
-		return new NormalizedTeams( $teams, $held, $excluded, $seen_divisions, $validation );
+		/*
+		 * A team that made it through is not also "skipped".
+		 *
+		 * One team can have several registrations - a paid captain and a pending
+		 * player - and the pending one would otherwise report the team as missing
+		 * while it sits happily on the page.
+		 */
+		foreach ( array_keys( $teams ) as $published ) {
+			unset( $skipped[ (string) $published ] );
+		}
+
+		return new NormalizedTeams( $teams, $held, $excluded, $seen_divisions, $validation, $skipped );
 	}
 
 	/**
@@ -294,6 +321,42 @@ final class TeamNormalizer {
 		}
 
 		++$report[ $label ]['teams'];
+	}
+
+	/**
+	 * Is this row's program over?
+	 *
+	 * programState carries LIVE for a running program and COMPLETED for a past
+	 * one. Unknown values are treated as still running, so a state this does not
+	 * recognise errs towards showing the team rather than hiding it.
+	 */
+	private static function is_finished( array $row ): bool {
+		$state = strtoupper( trim( (string) ( $row['programState'] ?? '' ) ) );
+
+		return in_array( $state, array( 'COMPLETED', 'ARCHIVED', 'CANCELLED', 'CANCELED' ), true );
+	}
+
+	/**
+	 * Record a team-bearing row we did not publish.
+	 *
+	 * Keyed by team id so repeated registrations for one team collapse into one
+	 * entry rather than filling a diagnostic screen with the same name.
+	 */
+	private static function note_skip( array &$skipped, array $row, string $reason, string $detail ): void {
+		$team = trim( (string) ( $row['team'] ?? '' ) );
+		$id   = (string) ( $row['teamId'] ?? '' );
+
+		// A row with no team is a free agent or an individual entry, not a team
+		// somebody is looking for on the page.
+		if ( '' === $team || '' === $id ) {
+			return;
+		}
+
+		if ( isset( $skipped[ $id ] ) ) {
+			return;
+		}
+
+		$skipped[ $id ] = array( 'team' => $team, 'reason' => $reason, 'detail' => $detail );
 	}
 
 	/** An excluded row is reported for triage, so it carries ids and nothing else. */
