@@ -97,9 +97,32 @@ final class Settings {
 	}
 
 	public static function save_event( string $event_key, array $config ): void {
-		$events               = self::events();
+		$events   = self::events();
+		$previous = $events[ $event_key ] ?? null;
+
 		$events[ $event_key ] = $config;
 		update_option( self::OPTION_EVENTS, $events, false );
+
+		/*
+		 * A settings change is a content change, and this was missed once.
+		 *
+		 * The generation was bumped only when TEAM DATA changed, on the reasonable
+		 * assumption that nothing else altered the page. It does: renaming a
+		 * division heading, reordering divisions, or turning a column on changes
+		 * what a visitor sees while writing nothing to the team table. The sync
+		 * correctly reported NO_CHANGE and the page kept serving the old heading
+		 * out of the view cache.
+		 *
+		 * Comparing against the previous value so that saving an unchanged form
+		 * does not cold-start the cache for nothing.
+		 */
+		if ( null !== $previous && $previous === $config ) {
+			return;
+		}
+
+		self::bump_generation( $event_key );
+
+		do_action( 'lawp_event_settings_changed', $event_key );
 	}
 
 	/**

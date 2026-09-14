@@ -188,3 +188,59 @@ knowing before wiring anything to that name.
 The letter-grades preset ships standalone A and B. This tournament runs a combined
 A/B, so both sat on the page saying "no teams registered yet" about divisions that
 do not exist.
+
+## Found by QA of the admin flow
+
+### Longest alias is the wrong tie-break
+
+Longest-alias-first was introduced so "Legends D" would not be read as "D". It
+failed on a real program:
+
+```
+"2026 Texas Hoedown (Legends D Division)"
+    "d division"  10 characters   ← won
+    "legends d"    9 characters
+```
+
+Legends teams were about to be filed under D, and it was invisible because no
+Legends team had registered yet. That is the shape of bug that surfaces on the
+busiest day of the season.
+
+Earliest match now wins, length breaks ties. That is the better rule regardless: a
+division name is what the program is called, near the front, not a fragment
+further along.
+
+### A stale program breaks a common-prefix suggestion
+
+Suggesting a program filter from the longest opening every current program shares
+produced nothing, because a 2017 tournament is still flagged live on that Site:
+
+```
+"2026 Texas Hoedown (C Division)"
+"2017 Open (NAGAAA) Tournament OLD"
+shared opening: "20"
+```
+
+The newest program with its parenthetical stripped is robust, and is what somebody
+would have typed anyway.
+
+### A settings change is a content change
+
+The view cache generation was bumped only when TEAM DATA changed, on the reasonable
+assumption that nothing else altered the page. It does: renaming a division
+heading, reordering divisions, or turning a column on all change what a visitor
+sees while writing nothing to the team table. The sync correctly reported
+`NO_CHANGE` and the page kept serving the old heading.
+
+`save_event()` bumps the generation now, comparing against the previous value so
+that saving an unchanged form does not cold-start the cache for nothing.
+
+### League conventions are configuration, not rules
+
+In International Pride Softball, Legends is the 50-and-over bracket and often has a
+single team, so it plays within D Division. Other organisations do not do that.
+
+The plugin knows nothing about it. Several programs can share one heading, each
+program name becoming another alias, so a league that wants Legends under D simply
+types "D Division" as that program's heading. Encoding the convention would have
+been wrong for every league that does not share it.
