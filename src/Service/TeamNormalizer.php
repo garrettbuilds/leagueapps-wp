@@ -15,6 +15,8 @@ namespace LeagueAppsWP\Service;
 use LeagueAppsWP\Domain\DivisionMatch;
 use LeagueAppsWP\Domain\EventConfig;
 use LeagueAppsWP\Domain\FieldPolicy;
+use LeagueAppsWP\Domain\MetroMap;
+use LeagueAppsWP\Domain\NameCase;
 use LeagueAppsWP\Domain\NormalizedTeams;
 use LeagueAppsWP\Domain\Team;
 use LeagueAppsWP\Domain\ValidationResult;
@@ -72,6 +74,35 @@ final class TeamNormalizer {
 					'count'        => 0,
 					'captain'      => '',
 					'division'     => null,
+					'settled'      => false,
+					'location'     => '',
+				);
+			}
+
+			/*
+			 * One settled registration is enough for the team.
+			 *
+			 * A team may have several registrations and they need not all be
+			 * paid: a manager pays, a late player has not yet. The question the
+			 * page asks is whether the TEAM's entry is settled, so any settled
+			 * registration answers it.
+			 */
+			if ( $this->is_settled( $row, $config ) ) {
+				$grouped[ $team_id ]['settled'] = true;
+			}
+
+			/*
+			 * First non-empty location wins, and only when the event asks for one.
+			 *
+			 * Built here and stored as a finished string, so nothing downstream
+			 * ever holds a raw city and state. The team row carries "Dallas, TX",
+			 * not two address fields waiting to be recombined.
+			 */
+			if ( $config->show_location && '' === $grouped[ $team_id ]['location'] ) {
+				$metros = $config->metros ?? new MetroMap( array() );
+				$grouped[ $team_id ]['location'] = $metros->label(
+					(string) ( $row['city'] ?? '' ),
+					(string) ( $row['state'] ?? '' )
 				);
 			}
 
@@ -83,8 +114,32 @@ final class TeamNormalizer {
 				$grouped[ $team_id ]['name'] = $name;
 			}
 
+			/*
+			 * Opt-in, and only when the WHOLE name is shouted.
+			 *
+			 * A team writing itself in capitals may have made a choice, so this
+			 * is off unless a site turns it on, and even then it refuses to touch
+			 * a name with any lower case in it - which is what protects
+			 * "ATX Dillos" from becoming "Atx Dillos".
+			 *
+			 * It cannot protect "STL ARCH NEMESIS". Nothing can tell that from a
+			 * genuinely shouted name, which is the reason for the default.
+			 */
+			if ( $config->normalize_team_names && $grouped[ $team_id ]['name'] === mb_strtoupper( $grouped[ $team_id ]['name'], 'UTF-8' ) ) {
+				$grouped[ $team_id ]['name'] = NameCase::person( $grouped[ $team_id ]['name'] );
+			}
+
 			if ( 'CAPTAIN' === strtoupper( (string) ( $row['role'] ?? '' ) ) && '' === $grouped[ $team_id ]['captain'] ) {
-				$who = $this->clean_name( trim( ( $row['firstName'] ?? '' ) . ' ' . ( $row['lastName'] ?? '' ) ) );
+				/*
+				 * A person's name is tidied; a team's is not.
+				 *
+				 * "Mathew HALL" is a form-filling artefact and printing it shouts
+				 * at a volunteer. "ATX Dillos" and "STL Arch Nemesis" are branding
+				 * choices, and normalising those would produce "Atx" and "Stl".
+				 * See EventConfig::$normalize_team_names for the opt-in, and the
+				 * reason it is off.
+				 */
+				$who = NameCase::person( $this->clean_name( trim( ( $row['firstName'] ?? '' ) . ' ' . ( $row['lastName'] ?? '' ) ) ) );
 				if ( '' !== $who ) {
 					$grouped[ $team_id ]['captain'] = $who;
 				}
@@ -125,7 +180,18 @@ final class TeamNormalizer {
 				captain: $config->show_captain ? $data['captain'] : '',
 				program_id: $data['program_id'],
 				program_name: $data['program_name'],
+				location: (string) $data['location'],
 			);
+
+			/*
+			 * Held, not excluded. An unpaid team is a real registration that is
+			 * simply not ready to publish, and an operator should be able to see
+			 * that it is being withheld rather than wonder where it went.
+			 */
+			if ( $config->require_payment && ! $data['settled'] ) {
+				$held[] = array( 'team' => $team, 'reason' => 'FEE_NOT_SETTLED', 'source_value' => '' );
+				continue;
+			}
 
 			if ( $data['count'] < $config->min_roster ) {
 				$held[] = array( 'team' => $team, 'reason' => 'BELOW_MIN_ROSTER', 'source_value' => (string) $data['count'] );
@@ -149,6 +215,25 @@ final class TeamNormalizer {
 		ksort( $teams );
 
 		return new NormalizedTeams( $teams, $held, $excluded, $seen_divisions, $validation );
+	}
+
+	/**
+	 * Is this registration's fee settled?
+	 *
+	 * paymentStatus is read here and goes no further. Team has no property that
+	 * can hold it, which is what makes "never stored" a fact about the code
+	 * rather than a promise in a comment.
+	 */
+	private function is_settled( array $row, EventConfig $config ): bool {
+		$status = strtoupper( trim( (string) ( $row['paymentStatus'] ?? '' ) ) );
+
+		// An absent value is NOT treated as settled. A source that stops sending
+		// the field would otherwise silently publish everybody.
+		if ( '' === $status ) {
+			return false;
+		}
+
+		return in_array( $status, array_map( 'strtoupper', $config->accepted_payment_statuses ), true );
 	}
 
 	private function in_scope( EventConfig $config, int $program_id, string $program_name ): bool {
@@ -213,6 +298,8 @@ final class TeamNormalizer {
 
 	/** An excluded row is reported for triage, so it carries ids and nothing else. */
 	private function safe_row( array $row ): array {
+		// Ids only. Never paymentStatus, which is read for a decision and must
+		// not reach a report either.
 		return array(
 			'programId' => $row['programId'] ?? null,
 			'teamId'    => $row['teamId'] ?? null,

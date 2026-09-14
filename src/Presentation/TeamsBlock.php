@@ -86,7 +86,9 @@ final class TeamsBlock {
 			// Two gates, and the event's is the one that wins. A page editor must
 			// not be able to publish names the event's data policy says no to.
 			'show_captain'      => ! empty( $attributes['showCaptain'] ) && $config->show_captain,
+			'show_location'     => ! empty( $attributes['showLocation'] ) && $config->show_location,
 			'show_last_updated' => ! empty( $attributes['showLastUpdated'] ),
+			'table_class'       => (string) ( $attributes['tableClass'] ?? '' ),
 			'source_url'        => (string) ( $attributes['sourceUrl'] ?? '' ),
 			'source_label'      => '' !== (string) ( $attributes['sourceLabel'] ?? '' )
 				? (string) $attributes['sourceLabel']
@@ -113,8 +115,10 @@ final class TeamsBlock {
 			'jumplinks'    => 'yes',
 			'counts'       => 'no',
 			'captain'      => 'no',
+			'location'     => 'no',
 			'updated'      => 'yes',
 			'empty'        => 'no',
+			'table_class'  => '',
 			'source'       => '',
 			'source_label' => '',
 		), (array) $atts, 'leagueapps_teams' );
@@ -128,8 +132,10 @@ final class TeamsBlock {
 			'showJumpLinks'   => $yes( $atts['jumplinks'] ),
 			'showCounts'      => $yes( $atts['counts'] ),
 			'showCaptain'     => $yes( $atts['captain'] ),
+			'showLocation'    => $yes( $atts['location'] ),
 			'showLastUpdated' => $yes( $atts['updated'] ),
 			'showEmpty'       => $yes( $atts['empty'] ),
+			'tableClass'      => (string) $atts['table_class'],
 			'sourceUrl'       => (string) $atts['source'],
 			'sourceLabel'     => (string) $atts['source_label'],
 		) );

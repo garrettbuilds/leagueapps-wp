@@ -29,6 +29,8 @@ final class Team {
 		public readonly ?int $program_id = null,
 		public readonly string $program_name = '',
 		public readonly string $display_name_override = '',
+		/** Already formatted for display, e.g. "Austin, TX". Never a full address. */
+		public readonly string $location = '',
 	) {}
 
 	/** What the public page shows: an operator override wins over the source name. */
@@ -48,6 +50,7 @@ final class Team {
 		return hash( 'sha256', implode( "\x1f", array(
 			$this->display_name(),
 			(string) $this->division_key,
+			$this->location,
 			(string) $this->roster_count,
 			$this->captain,
 		) ) );
@@ -66,6 +69,7 @@ final class Team {
 			array_key_exists( 'program_id', $changes ) ? $changes['program_id'] : $this->program_id,
 			$changes['program_name'] ?? $this->program_name,
 			$changes['display_name_override'] ?? $this->display_name_override,
+			$changes['location'] ?? $this->location,
 		);
 	}
 }

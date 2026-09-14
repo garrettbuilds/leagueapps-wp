@@ -8,6 +8,7 @@ use LeagueAppsWP\Domain\EventConfig;
 use LeagueAppsWP\Service\DivisionMapper;
 use LeagueAppsWP\Service\TeamNormalizer;
 use LeagueAppsWP\Tests\Support\Fixtures;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class TeamNormalizerTest extends TestCase {
@@ -169,6 +170,137 @@ final class TeamNormalizerTest extends TestCase {
 		self::assertSame( 2, $result->division_report['C']['teams'] );
 		self::assertSame( 1, $result->division_report['Competitive Open']['teams'] );
 		self::assertNull( $result->division_report['Competitive Open']['key'] );
+	}
+
+	public function test_by_default_payment_is_not_checked_at_all(): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => 'UNPAID' ) ) ),
+			Fixtures::config()
+		);
+
+		self::assertCount( 1, $result->teams, 'a league that does not gate on payment must be unaffected' );
+	}
+
+	public function test_a_paid_team_is_published_when_payment_is_required(): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => 'PAID' ) ) ),
+			Fixtures::config( array( 'require_payment' => true ) )
+		);
+
+		self::assertCount( 1, $result->teams );
+	}
+
+	public function test_an_unpaid_team_is_held_rather_than_published(): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => 'UNPAID' ) ) ),
+			Fixtures::config( array( 'require_payment' => true ) )
+		);
+
+		self::assertCount( 0, $result->teams );
+		self::assertSame( 'FEE_NOT_SETTLED', $result->held[0]['reason'] );
+	}
+
+	/**
+	 * Absent is not settled.
+	 *
+	 * If the source stopped sending paymentStatus, treating the gap as "fine"
+	 * would silently publish everybody, which is the opposite of what the rule
+	 * was turned on for.
+	 */
+	public function test_a_missing_payment_status_is_not_treated_as_paid(): void {
+		$row = Fixtures::row();
+		unset( $row['paymentStatus'] );
+
+		$result = $this->normalizer()->normalize( array( $row ), Fixtures::config( array( 'require_payment' => true ) ) );
+
+		self::assertCount( 0, $result->teams );
+		self::assertSame( 'FEE_NOT_SETTLED', $result->held[0]['reason'] );
+	}
+
+	/** "Paid" is not the only way a fee stops being owed. */
+	#[DataProvider( 'settled_statuses' )]
+	public function test_other_settled_states_count( string $status ): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => $status ) ) ),
+			Fixtures::config( array( 'require_payment' => true ) )
+		);
+
+		self::assertCount( 1, $result->teams, "$status should count as settled" );
+	}
+
+	public static function settled_statuses(): iterable {
+		yield 'paid'          => array( 'PAID' );
+		yield 'league pays'   => array( 'NA_TEAM_PAYS' );
+		yield 'free entry'    => array( 'NA_FREE' );
+		yield 'comped'        => array( 'COMPED' );
+		yield 'lower case'    => array( 'paid' );
+		yield 'padded'        => array( '  PAID  ' );
+	}
+
+	#[DataProvider( 'unsettled_statuses' )]
+	public function test_unsettled_states_are_held( string $status ): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => $status ) ) ),
+			Fixtures::config( array( 'require_payment' => true ) )
+		);
+
+		self::assertCount( 0, $result->teams, "$status must not publish" );
+	}
+
+	public static function unsettled_statuses(): iterable {
+		yield 'unpaid'    => array( 'UNPAID' );
+		yield 'void'      => array( 'VOID' );
+		yield 'refunded'  => array( 'REFUNDED' );
+		yield 'pending'   => array( 'PENDING' );
+		yield 'empty'     => array( '' );
+	}
+
+	/**
+	 * One settled registration settles the team.
+	 *
+	 * A manager pays and a late player has not. The page asks whether the TEAM's
+	 * entry is settled, not whether every person on it has paid.
+	 */
+	public function test_one_settled_registration_is_enough_for_the_team(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'paymentStatus' => 'UNPAID', 'role' => 'PLAYER' ) ),
+			Fixtures::row( array( 'paymentStatus' => 'PAID', 'role' => 'CAPTAIN' ) ),
+		), Fixtures::config( array( 'require_payment' => true ) ) );
+
+		self::assertCount( 1, $result->teams );
+		self::assertSame( 2, $result->teams[84321]->roster_count );
+	}
+
+	/**
+	 * The point of the third field category.
+	 *
+	 * paymentStatus is read to decide whether to show a row, and must not survive
+	 * into anything stored, rendered or reported. Team has no property that could
+	 * hold it, so this asserts the guarantee the type system already gives.
+	 */
+	public function test_payment_status_is_read_for_the_decision_and_never_kept(): void {
+		$result = $this->normalizer()->normalize(
+			array( Fixtures::row( array( 'paymentStatus' => 'PAID' ) ) ),
+			Fixtures::config( array( 'require_payment' => true ) )
+		);
+
+		$encoded = strtoupper( (string) json_encode( $result ) );
+
+		self::assertStringNotContainsString( 'PAYMENTSTATUS', $encoded );
+		self::assertStringNotContainsString( '"PAID"', $encoded );
+	}
+
+	/** The decision field must not leak through a held or excluded row either. */
+	public function test_a_held_row_report_does_not_carry_the_payment_status(): void {
+		$result = $this->normalizer()->normalize( array(
+			Fixtures::row( array( 'paymentStatus' => 'UNPAID' ) ),
+			Fixtures::row( array( 'teamId' => 'bad', 'paymentStatus' => 'UNPAID' ) ),
+		), Fixtures::config( array( 'require_payment' => true ) ) );
+
+		$encoded = strtoupper( (string) json_encode( array( $result->held, $result->excluded ) ) );
+
+		self::assertStringNotContainsString( 'UNPAID', $encoded );
+		self::assertStringNotContainsString( 'PAYMENTSTATUS', $encoded );
 	}
 
 	/** The privacy boundary, asserted rather than trusted. */

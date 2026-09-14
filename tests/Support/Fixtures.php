@@ -40,8 +40,13 @@ final class Fixtures {
 			unknown_division_policy: $overrides['unknown_division_policy'] ?? EventConfig::HOLD_FOR_REVIEW,
 			max_deactivation_count: $overrides['max_deactivation_count'] ?? 10,
 			max_deactivation_percent: $overrides['max_deactivation_percent'] ?? 20,
+			require_payment: $overrides['require_payment'] ?? false,
+			accepted_payment_statuses: $overrides['accepted_payment_statuses'] ?? array( 'PAID', 'NA_TEAM_PAYS', 'NA_FREE', 'COMPED' ),
+			normalize_team_names: $overrides['normalize_team_names'] ?? false,
 			min_roster: $overrides['min_roster'] ?? 1,
 			show_captain: $overrides['show_captain'] ?? false,
+			show_location: $overrides['show_location'] ?? false,
+			metros: $overrides['metros'] ?? new \LeagueAppsWP\Domain\MetroMap( require dirname( __DIR__, 2 ) . '/presets/us-metros.php' ),
 		);
 	}
 

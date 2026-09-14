@@ -31,9 +31,17 @@ final class TeamsRenderer {
 			'show_jump_links'   => true,
 			'show_counts'       => true,
 			'show_captain'      => false,
+			'show_location'     => false,
 			'show_last_updated' => true,
 			'source_url'        => '',
 			'source_label'      => __( 'View on LeagueApps', 'leagueapps-wp' ),
+			/*
+			 * A class for the <table> itself, so the block can wear the site's
+			 * existing table styling rather than introduce a second look. The
+			 * brand guide on the site this was built for defines one table
+			 * treatment; a plugin that ships its own would quietly create two.
+			 */
+			'table_class'       => '',
 		), $options );
 
 		if ( $view->never_synced() || $view->is_empty() ) {
@@ -117,6 +125,10 @@ final class TeamsRenderer {
 
 		$columns = array( esc_html__( 'Team', 'leagueapps-wp' ) );
 
+		if ( $options['show_location'] ) {
+			$columns[] = esc_html__( 'Home', 'leagueapps-wp' );
+		}
+
 		if ( $options['show_captain'] ) {
 			$columns[] = esc_html__( 'Manager', 'leagueapps-wp' );
 		}
@@ -136,6 +148,10 @@ final class TeamsRenderer {
 			// row says the team before it says anything about the team.
 			$rows .= '<tr><th scope="row" class="lawp-teams__name">' . esc_html( $team['name'] ) . '</th>';
 
+			if ( $options['show_location'] ) {
+				$rows .= '<td class="lawp-teams__home">' . esc_html( (string) ( $team['location'] ?? '' ) ) . '</td>';
+			}
+
 			if ( $options['show_captain'] ) {
 				$rows .= '<td class="lawp-teams__captain">' . esc_html( $team['captain'] ) . '</td>';
 			}
@@ -148,16 +164,31 @@ final class TeamsRenderer {
 		}
 
 		/*
+		 * wp-block-table on the wrapper, so the table wears the site's own look.
+		 *
+		 * Themes style the core table block, and on the site this was built for
+		 * that is where the whole brand treatment lives: the rule under the
+		 * header, the alternating row tint, the type. The first attempt put a
+		 * bespoke class on the <table> and it inherited nothing, because the
+		 * theme's selectors are .wp-block-table > table and .wp-block-table thead
+		 * th - they need the WRAPPER to carry the class, not the table.
+		 *
+		 * Adopting the core class rather than shipping a competing look means the
+		 * block matches whatever tables the site already has, on any theme.
+		 *
 		 * The scroll container is not decoration.
 		 *
 		 * A three-column table of team names overflows at 320px, and an
 		 * overflowing table drags the whole page sideways. Scrolling it inside
 		 * its own box keeps the body still.
 		 */
+		$table_class = trim( 'lawp-teams__table ' . (string) ( $options['table_class'] ?? '' ) );
+
 		$out[] = sprintf(
-			'<div class="lawp-teams__scroll"><table class="lawp-teams__table">'
+			'<div class="lawp-teams__scroll wp-block-table"><table class="%s">'
 			. '<caption class="screen-reader-text">%s</caption>'
 			. '<thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>',
+			esc_attr( $table_class ),
 			esc_attr( sprintf(
 				/* translators: %s: division name. */
 				__( 'Teams registered in %s', 'leagueapps-wp' ),

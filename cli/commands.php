@@ -36,14 +36,90 @@ class LAWP_Command {
 		$auth = $this->auth();
 
 		WP_CLI::log( 'LeagueApps for WordPress ' . LAWP_VERSION );
-		WP_CLI::log( '  Certificate: ' . ( is_readable( $this->cert() ) ? 'readable' : 'NOT READABLE by ' . get_current_user() ) );
+
+		/*
+		 * get_current_user() returns the owner of the PHP SCRIPT, not the user
+		 * running it, so the first version of this reported "NOT READABLE by
+		 * root" for a command running as the site user. Misleading at exactly the
+		 * moment somebody is debugging a permissions problem.
+		 */
+		$who = function_exists( 'posix_geteuid' ) ? ( posix_getpwuid( posix_geteuid() )['name'] ?? '?' ) : '?';
+
+		if ( is_readable( $this->cert() ) ) {
+			WP_CLI::log( '  Certificate: readable' );
+		} else {
+			WP_CLI::log( sprintf( '  Certificate: NOT READABLE as %s', $who ) );
+			/*
+			 * The mistake worth naming, because it costs an hour.
+			 *
+			 * A credential "outside the web root" is usually put in /opt, and on
+			 * a hardened host the site user cannot read /opt at all. GridPane
+			 * sets an ACL denying its GridPane-System-Users group, so the file is
+			 * unreadable no matter what its own mode says. Above htdocs but
+			 * inside the site's own tree is both private and reachable.
+			 */
+			WP_CLI::log( '               Put it above htdocs but inside the site tree, e.g.' );
+			WP_CLI::log( '               /var/www/<site>/private/leagueapps.p12, mode 0600.' );
+			WP_CLI::log( '               /opt is often unreadable to the site user on hardened hosts.' );
+		}
 
 		$token = $auth->token();
-		WP_CLI::log( '  Token:       ' . ( $token ? 'ok, scope ' . ( $auth->scope() ?: '?' ) : 'FAILED: ' . $auth->last_error() ) );
+
+		if ( $token ) {
+			WP_CLI::log( '  Token:       ok, scope ' . ( $auth->scope() ?: '?' ) );
+		} else {
+			WP_CLI::log( '  Token:       FAILED: ' . $auth->last_error() );
+
+			/*
+			 * A site may carry its own guard that refuses non-GET requests to the
+			 * vendor. That is a good thing to have, and it also blocks the token
+			 * request, because OAuth obtains a READ token with a POST. The fix is
+			 * a narrow exception for one host and one path, not a wider guard.
+			 */
+			if ( false !== stripos( $auth->last_error(), 'block' ) ) {
+				WP_CLI::log( '               Something on this site is refusing the request.' );
+				WP_CLI::log( '               The token call is a POST even though it only buys read' );
+				WP_CLI::log( '               access. Allow POST to auth.leagueapps.io/v2/auth/token' );
+				WP_CLI::log( '               specifically, rather than relaxing the guard.' );
+			}
+		}
 		WP_CLI::log( '  Writes to LeagueApps: blocked. There is no write method in the client.' );
+
+		global $wpdb;
 
 		foreach ( Settings::events() as $key => $event ) {
 			WP_CLI::log( sprintf( '  Event %-24s site %s', $key, $event['site_id'] ?? '?' ) );
+
+			$config = Settings::event( (string) $key );
+
+			if ( null === $config ) {
+				continue;
+			}
+
+			$have = (array) $wpdb->get_col( $wpdb->prepare(
+				'SELECT DISTINCT division_key FROM ' . \LeagueAppsWP\Infrastructure\Schema::teams_table()
+				. ' WHERE event_key = %s AND is_active = 1',
+				$key
+			) );
+
+			/*
+			 * An empty division is not a problem, it is a division nobody has
+			 * registered for yet. Listing them says so out loud, so a heading
+			 * missing from the page reads as "nobody has entered" rather than
+			 * "the sync is broken", and so a division that fills up is expected
+			 * to appear on its own.
+			 */
+			$empty = array();
+
+			foreach ( $config->divisions->keys_in_order() as $division ) {
+				if ( ! in_array( $division, $have, true ) ) {
+					$empty[] = $config->divisions->label( $division );
+				}
+			}
+
+			if ( array() !== $empty ) {
+				WP_CLI::log( '    waiting on entries: ' . implode( ', ', $empty ) );
+			}
 		}
 
 		if ( ! $token ) {

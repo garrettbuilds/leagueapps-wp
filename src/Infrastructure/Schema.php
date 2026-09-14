@@ -14,7 +14,7 @@ namespace LeagueAppsWP\Infrastructure;
 
 final class Schema {
 
-	public const VERSION = '1.0.0';
+	public const VERSION = '1.1.0';
 	public const OPTION  = 'lawp_schema_version';
 
 	public static function teams_table(): string {
@@ -64,6 +64,7 @@ final class Schema {
 			division_source varchar(190) NOT NULL DEFAULT '',
 			roster_count int(10) unsigned NOT NULL DEFAULT 0,
 			captain varchar(190) NOT NULL DEFAULT '',
+			location varchar(190) NOT NULL DEFAULT '',
 			visible_hash char(64) NOT NULL DEFAULT '',
 			is_active tinyint(1) NOT NULL DEFAULT 1,
 			first_seen_at datetime NOT NULL,

@@ -18,7 +18,23 @@
 	list-style: none;
 }
 
-.lawp-teams__jump-link {
+/*
+ * Three classes, and the number is measured rather than chosen.
+ *
+ * A jump pill is a link that is the only child of a list item, which is exactly
+ * what a content theme reaches for. The host theme here carries
+ *
+ *     .entry-content li > a:only-child { padding: 2px 0 }
+ *
+ * at specificity (0,2,2), and the block's own rule at (0,2,0) lost to it. The
+ * border was drawn hard against the glyphs and the text appeared to spill out of
+ * the pill. Found by reading computed styles on the live page; guessing at it
+ * twice first was the slow way round.
+ *
+ * (0,3,0) clears it. If a theme ever beats this too, measure before adding
+ * !important: the rule that wins is knowable.
+ */
+.lawp-teams .lawp-teams__jump-list .lawp-teams__jump-link {
 	display: inline-block;
 
 	/*
@@ -35,8 +51,8 @@
 	text-decoration: none;
 }
 
-.lawp-teams__jump-link:hover,
-.lawp-teams__jump-link:focus {
+.lawp-teams .lawp-teams__jump-list .lawp-teams__jump-link:hover,
+.lawp-teams .lawp-teams__jump-list .lawp-teams__jump-link:focus {
 	text-decoration: underline;
 }
 

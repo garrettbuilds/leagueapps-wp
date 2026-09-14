@@ -98,6 +98,41 @@ final class SyncApplier {
 			return ApplyResult::refused( 'APPLY_FAILED: ' . $e->getMessage() );
 		}
 
+		/*
+		 * Did the write actually take?
+		 *
+		 * A field can be added to Team and to visible_hash() and forgotten in the
+		 * repository's column list. Nothing errors: the row is written, the new
+		 * value is dropped, and because the hash still says the data differs,
+		 * EVERY subsequent run plans the same updates again. A sync that never
+		 * converges and never complains.
+		 *
+		 * That happened, with `location`, and it was caught by a person reading a
+		 * log rather than by anything here. Re-reading the rows and comparing
+		 * hashes is cheap and catches the whole class.
+		 */
+		$stored = $this->repository->active_for_event( $plan->event_key );
+		$drifted = 0;
+
+		foreach ( $writes as $change ) {
+			if ( PlannedChange::DEACTIVATE === $change->action || null === $change->after ) {
+				continue;
+			}
+
+			$after = $stored[ $change->after->source_team_id ] ?? null;
+
+			if ( null === $after || $after->visible_hash() !== $change->after->visible_hash() ) {
+				++$drifted;
+			}
+		}
+
+		if ( $drifted > 0 ) {
+			return ApplyResult::refused( sprintf(
+				'WRITE_DID_NOT_PERSIST: %d row(s) read back different from what was planned. A field is probably in visible_hash() but missing from the repository, which makes every run repeat these changes for ever.',
+				$drifted
+			) );
+		}
+
 		return ApplyResult::applied( count( $writes ), true, $plan->source_hash );
 	}
 

@@ -13,6 +13,7 @@ namespace LeagueAppsWP\Infrastructure;
 
 use LeagueAppsWP\Domain\DivisionMap;
 use LeagueAppsWP\Domain\EventConfig;
+use LeagueAppsWP\Domain\MetroMap;
 
 final class Settings {
 
@@ -89,6 +90,8 @@ final class Settings {
 			min_roster: (int) ( $stored['min_roster'] ?? 1 ),
 			show_roster_count: (bool) ( $stored['show_roster_count'] ?? false ),
 			show_captain: (bool) ( $stored['show_captain'] ?? false ),
+			show_location: (bool) ( $stored['show_location'] ?? false ),
+			metros: new MetroMap( (array) ( $stored['metros'] ?? array() ) ),
 			timezone: (string) ( $stored['timezone'] ?? wp_timezone_string() ),
 		);
 	}

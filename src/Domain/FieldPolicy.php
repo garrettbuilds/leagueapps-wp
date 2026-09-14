@@ -29,10 +29,52 @@ final class FieldPolicy {
 	public const ALLOW = array(
 		'programId', 'programName', 'programState',
 		'teamId', 'team',
+		/*
+		 * City and state are ADDRESS COMPONENTS, and they are here deliberately.
+		 *
+		 * On a tournament they answer "where is this team travelling from",
+		 * which is ordinary public information that most events print. They are
+		 * also, literally, two fields out of somebody's home address: on the site
+		 * this was built for, `city` sits between `address1` and `zipCode`, and
+		 * the value is the REGISTRANT's city rather than the team's.
+		 *
+		 * So they are taken, and rendering them is off unless a site turns it on.
+		 * The rest of the address - street, postcode, phone, email - stays denied
+		 * and has no setting.
+		 *
+		 * Worth knowing before enabling: showing a location NEXT TO a named
+		 * manager tells the world where that particular person lives. Showing the
+		 * location alone does not.
+		 */
+		'city', 'state',
 		'division', 'season', 'registrationStatus',
 		'role', 'isStaff',
 		'firstName', 'lastName',
 	);
+
+	/**
+	 * Read to make a decision. NEVER stored, rendered or logged.
+	 *
+	 * A third category exists because the second one was not quite true.
+	 *
+	 * A league asked that only teams which have paid appear publicly. Deciding
+	 * that means reading paymentStatus, and paymentStatus was on the denylist -
+	 * correctly, because publishing who has and has not paid would be a small
+	 * humiliation printed on a public page.
+	 *
+	 * But reading a field to decide whether to show a ROW is not the same act as
+	 * storing or publishing it. Collapsing the two left only bad options: publish
+	 * unpaid teams, or widen the denylist and lose the guarantee.
+	 *
+	 * So: reduce() keeps these, the normaliser reads them, and Team has no
+	 * property that can hold one. The guarantee is structural rather than
+	 * remembered - there is no field to put it in.
+	 *
+	 * ONLY paymentStatus. Not amountPaid, not outstandingBalance, not invoiceId,
+	 * not totalAmountDue, not lastPaymentDate. Those answer "how much" and "when",
+	 * which no visibility decision needs, and they stay denied.
+	 */
+	public const DECIDE_ONLY = array( 'paymentStatus' );
 
 	/**
 	 * Never stored, never rendered, never logged.
@@ -43,15 +85,15 @@ final class FieldPolicy {
 	 */
 	public const DENY = array(
 		'email', 'phone', 'mobilePhone',
-		'address1', 'address2', 'city', 'state', 'zipCode', 'country',
+		'address1', 'address2', 'zipCode', 'country',
 		'birthDate', 'gender',
-		'paymentStatus', 'amountPaid', 'totalAmountDue', 'outstandingBalance',
+		'amountPaid', 'totalAmountDue', 'outstandingBalance',
 		'invoiceId', 'lastPaymentDate', 'waiverAcceptedTimestamp',
 		'userId', 'userProfileId', 'photo',
 	);
 
 	public static function reduce( array $row ): array {
-		$kept = array_intersect_key( $row, array_flip( self::ALLOW ) );
+		$kept = array_intersect_key( $row, array_flip( array_merge( self::ALLOW, self::DECIDE_ONLY ) ) );
 
 		// Belt and braces: if ALLOW and DENY ever overlap through an edit, DENY wins.
 		foreach ( self::DENY as $blocked ) {

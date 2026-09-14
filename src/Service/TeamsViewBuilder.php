@@ -40,6 +40,7 @@ final class TeamsViewBuilder {
 				'id'           => $team->source_team_id,
 				'name'         => $team->display_name(),
 				'captain'      => $team->captain,
+				'location'     => $team->location,
 				'roster_count' => $team->roster_count,
 			);
 		}

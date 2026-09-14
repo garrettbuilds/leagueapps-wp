@@ -47,6 +47,7 @@ final class WpdbTeamRepository implements TeamRepositoryInterface {
 				program_id: null !== $row['program_id'] ? (int) $row['program_id'] : null,
 				program_name: (string) $row['program_name'],
 				display_name_override: (string) $row['display_name_override'],
+				location: (string) ( $row['location'] ?? '' ),
 			);
 		}
 
@@ -61,9 +62,9 @@ final class WpdbTeamRepository implements TeamRepositoryInterface {
 				'INSERT INTO ' . Schema::teams_table() . '
 					(event_key, source_team_id, program_id, program_name, team_name_source,
 					 display_name_override, division_key, division_label, division_source,
-					 roster_count, captain, visible_hash, is_active,
+					 roster_count, captain, location, visible_hash, is_active,
 					 first_seen_at, last_seen_at, synced_at)
-				VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, 1, %s, %s, %s)
+				VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, 1, %s, %s, %s)
 				ON DUPLICATE KEY UPDATE
 					program_id = VALUES(program_id),
 					program_name = VALUES(program_name),
@@ -73,6 +74,7 @@ final class WpdbTeamRepository implements TeamRepositoryInterface {
 					division_source = VALUES(division_source),
 					roster_count = VALUES(roster_count),
 					captain = VALUES(captain),
+					location = VALUES(location),
 					visible_hash = VALUES(visible_hash),
 					is_active = 1,
 					last_seen_at = VALUES(last_seen_at),
@@ -94,6 +96,7 @@ final class WpdbTeamRepository implements TeamRepositoryInterface {
 				$team->source_division_value,
 				$team->roster_count,
 				$team->captain,
+				$team->location,
 				$team->visible_hash(),
 				$now,
 				$now,
