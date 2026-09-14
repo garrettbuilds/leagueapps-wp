@@ -203,3 +203,61 @@ admin.leagueapps.io/v2/sites/{site}/export/standings          404
 Two endpoints exist on this credential type: `export/registrations-2` and
 `export/programs`. Teams are derived from registrations. Schedules and standings
 cannot be built from what a Private API Key reaches.
+
+## The Public API, and why you should prefer it
+
+There are two APIs. Confusing them costs days.
+
+```
+Private export   admin.leagueapps.io   OAuth2 JWT bearer, .p12 signed
+Public           api.leagueapps.io     la-api-key request header
+```
+
+**The header name is the whole puzzle.** `?apiKey=` returns `403 Invalid API Key`
+for a valid key, an invalid key, and no key at all — three identical responses, so
+the failure can never be distinguished from the outside. `la-api-key` is the name
+the gateway reads.
+
+### What the public lane returns
+
+```
+GET /v1/sites/{site}                                200
+GET /v1/sites/{site}/programs/{program}             200
+GET /v1/sites/{site}/programs/{program}/teams       200   ← no personal data
+GET /v1/sites/{site}/locations                      200
+GET /v1/sites/{site}/programs                       500   list endpoint is broken
+GET /v1/sites/{site}/programs/{program}/schedules   404
+GET /v1/sites/{site}/programs/{program}/games       404
+GET /v1/sites/{site}/programs/{program}/standings   404
+```
+
+Schedules and standings do not exist in v1. That is tested at the correct base
+with an accepted key, against paths whose siblings return 200 — not inferred from
+a 404 on a guessed route.
+
+### The teams payload is the reason to prefer it
+
+```json
+{ "programId": "…", "teamId": 0, "teamName": "…", "division": "None",
+  "teamStatus": "COMPLETE", "teamProfileURL": "…", "dateCreated": "…", "deleted": false }
+```
+
+Eight fields, none of them personal. The export lane answers the same question by
+handing you every registration — name, email, phone, address, date of birth,
+payment status — so that an allowlist can throw almost all of it away.
+
+`teamStatus` is `COMPLETE` or `INCOMPLETE`, which is the public-safe equivalent of
+the payment gate: the team that is `INCOMPLETE` here is the one that is
+`UNPAID / SPOT_PENDING` in the export.
+
+### Keys are per Site
+
+A public key reaches its own Site and returns `404 Site Not Found` for any other,
+exactly as a private key returns 403. One key per Site, generated at
+**Manager Console → Connect → API Settings**.
+
+### Division is not in the payload
+
+`division` comes back as `"None"` on a Site that uses a separate program per
+division, which is the common arrangement. Division detection still works from the
+program name. See [DIVISIONS.md](DIVISIONS.md).

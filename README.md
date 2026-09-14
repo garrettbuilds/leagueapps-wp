@@ -36,21 +36,41 @@ structure. If something in here still does, that is a bug — please open an iss
 
 - WordPress 6.4+, PHP 8.1+
 - WP-CLI, and server cron or a host cron panel
-- A LeagueApps Private API Key and its `.p12` certificate
+- A LeagueApps API key, **one per Site**
 
-A public API key will not work. That is not an oversight — see
-[docs/LEAGUEAPPS-API.md](docs/LEAGUEAPPS-API.md).
+There are two LeagueApps APIs and they are not interchangeable. The **public**
+lane (`api.leagueapps.io`, `la-api-key` header) returns teams and locations with
+no personal data in them and is what you want. The **private export** lane
+(`admin.leagueapps.io`, OAuth2 JWT with a `.p12`) returns registrations, which
+carry names, emails, addresses, dates of birth and payment status — everything
+this plugin then throws away to find a team name.
+
+Prefer the public lane. See [docs/LEAGUEAPPS-API.md](docs/LEAGUEAPPS-API.md),
+including the header name, which cannot be worked out by trial and error because
+every wrong guess returns the same error as no key at all.
+
+**Neither lane has schedules or standings.** Those endpoints do not exist.
 
 ## Install
 
+One entry per LeagueApps Site, because a key issued for one Site is refused by
+another:
+
 ```php
 // wp-config.php
-define( 'LAWP_CLIENT_ID', 'your-private-api-key-name' );
-define( 'LAWP_CERT_PATH', '/opt/credentials/leagueapps.p12' );
+define( 'LAWP_CREDENTIALS', array(
+    9772 => array( 'client_id' => 'key-name', 'cert_path' => '/var/www/example.com/private/tournament.p12' ),
+    1234 => array( 'client_id' => 'key-name', 'cert_path' => '/var/www/example.com/private/league.p12' ),
+) );
 ```
 
-The `.p12` belongs outside the web root, mode 0600, owned by the user your cron
-job runs as — which is usually **not** the user PHP-FPM runs as.
+Never in the database: a key in `wp_options` is in every export, every backup and
+every migration.
+
+The `.p12` belongs **above your web root but inside your site folder**, mode 0600,
+owned by the user your cron job runs as — which is usually not the user PHP-FPM
+runs as. Not `/opt`: hosts commonly deny the site user there, and the resulting
+"not readable" is baffling because the file's own permissions look correct.
 
 ```bash
 wp plugin activate leagueapps-wp
@@ -153,7 +173,7 @@ These exist because each one describes a way a public page can become wrong.
 composer install && composer test
 ```
 
-184 tests, no WordPress, no database, no network.
+191 tests, no WordPress, no database, no network.
 
 ## Licence
 
