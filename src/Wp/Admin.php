@@ -96,6 +96,8 @@ final class Admin {
 				. esc_html( $report ) . '</pre>';
 		}
 
+		self::confirm_form();
+
 		if ( array() === $events ) {
 			self::first_run();
 		} else {
@@ -163,6 +165,172 @@ final class Admin {
 			$ok ? '<span style="color:#00a32a;">&#10003;</span>' : '<span style="color:#d63638;">&#10007;</span>',
 			esc_html( $detail )
 		);
+	}
+
+	/**
+	 * Turn what the Site returned into a publishable event.
+	 *
+	 * Everything here is pre-filled from the Site. An operator confirms or
+	 * corrects; they never supply an id or invent a division name, because a
+	 * value typed from memory is last season's tournament about half the time.
+	 */
+	private static function confirm_form(): void {
+		$found = get_transient( 'lawp_discovered' );
+
+		if ( ! is_array( $found ) || array() === ( $found['programs'] ?? array() ) ) {
+			return;
+		}
+
+		$preset   = require LAWP_DIR . 'presets/letter-grades.php';
+		$mapper   = new DivisionMapper( new \LeagueAppsWP\Domain\DivisionMap( $preset ) );
+		$proposed = array();
+
+		foreach ( $found['programs'] as $program ) {
+			$match = $mapper->map( $program['name'] );
+
+			$proposed[] = array(
+				'program' => $program,
+				'key'     => $match->is_known() ? (string) $match->key : '',
+				'label'   => $match->is_known() ? (string) $match->label : '',
+			);
+		}
+
+		// A filter that covers the newest programs, so the event keeps working
+		// when a division is added later.
+		$suggested = self::suggest_filter( $found['programs'] );
+
+		echo '<div class="card" style="max-width:none;padding:12px 16px;margin-top:16px;border-left:4px solid #2271b1;">';
+		echo '<h2 style="margin-top:0;">' . esc_html__( 'Confirm what to publish', 'leagueapps-wp' ) . '</h2>';
+		printf(
+			'<p>%s</p>',
+			esc_html( sprintf(
+				/* translators: 1: number of programs, 2: number of teams. */
+				__( 'Found %1$d current programs and %2$d teams on this Site. Nothing is published until you save.', 'leagueapps-wp' ),
+				count( $found['programs'] ),
+				(int) $found['teams']
+			) )
+		);
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( 'lawp_save_event' );
+		echo '<input type="hidden" name="action" value="lawp_save_event">';
+		printf( '<input type="hidden" name="site_id" value="%d">', (int) $found['site_id'] );
+
+		echo '<table class="form-table" role="presentation"><tbody>';
+		printf(
+			'<tr><th scope="row"><label for="lawp-title">%s</label></th><td><input type="text" id="lawp-title" name="title" class="regular-text" value="%s" required> <p class="description">%s</p></td></tr>',
+			esc_html__( 'What is this?', 'leagueapps-wp' ),
+			esc_attr( $suggested ),
+			esc_html__( 'How it appears in this admin. For example: Texas Hoedown 2026.', 'leagueapps-wp' )
+		);
+		printf(
+			'<tr><th scope="row"><label for="lawp-filter">%s</label></th><td><input type="text" id="lawp-filter" name="program_filter" class="regular-text" value="%s"> <p class="description">%s</p></td></tr>',
+			esc_html__( 'Include programs whose name contains', 'leagueapps-wp' ),
+			esc_attr( $suggested ),
+			esc_html__( 'A name filter rather than a list of ids, so a division added later is picked up on its own. Leave empty to include every program.', 'leagueapps-wp' )
+		);
+		echo '</tbody></table>';
+
+		echo '<h3>' . esc_html__( 'Divisions', 'leagueapps-wp' ) . '</h3>';
+		echo '<p class="description">' . esc_html__( 'Each current program, and the division heading its teams will appear under. Anything left unmapped is held back rather than guessed at.', 'leagueapps-wp' ) . '</p>';
+
+		echo '<table class="widefat striped"><thead><tr>';
+		echo '<th>' . esc_html__( 'Program in LeagueApps', 'leagueapps-wp' ) . '</th>';
+		echo '<th style="width:70px;">' . esc_html__( 'Teams', 'leagueapps-wp' ) . '</th>';
+		echo '<th style="width:240px;">' . esc_html__( 'Heading on your page', 'leagueapps-wp' ) . '</th>';
+		echo '<th style="width:90px;">' . esc_html__( 'Order', 'leagueapps-wp' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		$order = 10;
+
+		foreach ( $proposed as $i => $row ) {
+			printf(
+				'<tr><td>%s<br><span style="color:#646970;font-size:12px;">%s</span></td><td>%d</td>'
+				. '<td><input type="text" name="division_label[%d]" value="%s" class="regular-text" placeholder="%s"></td>'
+				. '<td><input type="number" name="division_order[%d]" value="%d" style="width:80px;"></td></tr>',
+				esc_html( $row['program']['name'] ),
+				esc_html( sprintf( /* translators: %d: program id. */ __( 'id %d', 'leagueapps-wp' ), $row['program']['id'] ) ),
+				(int) $row['program']['teams'],
+				(int) $i,
+				esc_attr( $row['label'] ),
+				esc_attr__( 'leave empty to hold back', 'leagueapps-wp' ),
+				(int) $i,
+				$order
+			);
+
+			printf( '<input type="hidden" name="division_source[%d]" value="%s">', (int) $i, esc_attr( $row['program']['name'] ) );
+			$order += 10;
+		}
+
+		echo '</tbody></table>';
+
+		echo '<h3>' . esc_html__( 'What visitors see', 'leagueapps-wp' ) . '</h3>';
+		echo '<table class="form-table" role="presentation"><tbody>';
+		self::checkbox_row( 'require_payment', __( 'Only show teams whose entry fee is paid', 'leagueapps-wp' ), true, __( 'Registration status alone is not proof of payment. A spot can be reserved before a payment clears.', 'leagueapps-wp' ) );
+		self::checkbox_row( 'show_location', __( 'Show where each team travels from', 'leagueapps-wp' ), true, __( 'Shown as the metro, not the town. The city on a registration is the person who registered, so a metro is both more useful and less identifying.', 'leagueapps-wp' ) );
+		self::checkbox_row( 'show_captain', __( 'Show the manager\'s name', 'leagueapps-wp' ), false, __( 'A team credit is ordinary public information. Showing it beside a location tells the world roughly where that person lives, so prefer one or the other.', 'leagueapps-wp' ) );
+		echo '</tbody></table>';
+
+		submit_button( __( 'Save and publish this event', 'leagueapps-wp' ) );
+		echo '</form></div>';
+	}
+
+	private static function checkbox_row( string $name, string $label, bool $default, string $help ): void {
+		printf(
+			'<tr><th scope="row">%s</th><td><label><input type="checkbox" name="%s" value="1"%s> %s</label><p class="description">%s</p></td></tr>',
+			esc_html( $label ),
+			esc_attr( $name ),
+			checked( $default, true, false ),
+			esc_html__( 'Yes', 'leagueapps-wp' ),
+			esc_html( $help )
+		);
+	}
+
+	/**
+	 * Suggest a program filter from the newest program's name.
+	 *
+	 * NOT a common prefix across every current program, which is what this did
+	 * first and which produced nothing at all on the Site it was built against:
+	 * a 2017 tournament was still flagged live, so the longest shared opening of
+	 * "2026 Texas Hoedown (C Division)" and "2017 Open (NAGAAA) Tournament OLD"
+	 * was "20". One stale program silently emptied the suggestion.
+	 *
+	 * The newest program with its trailing parenthetical removed is both more
+	 * robust and closer to what somebody would type: "2026 Texas Hoedown (C
+	 * Division)" becomes "2026 Texas Hoedown".
+	 *
+	 * @param array<int,array{id:int,name:string}> $programs Newest first.
+	 */
+	private static function suggest_filter( array $programs ): string {
+		$newest = (string) ( $programs[0]['name'] ?? '' );
+
+		if ( '' === $newest ) {
+			return '';
+		}
+
+		// Everything from the first bracket onwards is the division, not the event.
+		$base = (string) preg_replace( '/\s*[\(\[].*$/u', '', $newest );
+		$base = trim( (string) preg_replace( '/\s+(OLD|TEST|COPY|DRAFT)$/i', '', $base ) );
+
+		if ( strlen( $base ) < 4 ) {
+			return '';
+		}
+
+		/*
+		 * Only suggest it if it actually groups something.
+		 *
+		 * A filter matching one program is not a filter, it is a program id
+		 * written out in words, and it will not pick up a division added later.
+		 */
+		$matches = 0;
+
+		foreach ( $programs as $program ) {
+			if ( false !== stripos( (string) $program['name'], $base ) ) {
+				++$matches;
+			}
+		}
+
+		return $matches >= 2 ? $base : '';
 	}
 
 	private static function first_run(): void {
@@ -450,10 +618,70 @@ final class Admin {
 			self::back();
 		}
 
-		$report = ( new Discovery() )->explain( ( new Discovery() )->inspect( $regs->rows, $progs->rows ) );
-		set_transient( 'lawp_admin_report', $report, 300 );
-		self::notice( 'success', esc_html__( 'Site read. Nothing was changed.', 'leagueapps-wp' ) );
+		$discovery = new Discovery();
+		$report    = $discovery->inspect( $regs->rows, $progs->rows );
+
+		/*
+		 * Keep the findings, not just the prose.
+		 *
+		 * The point of discovery is that nobody types a program id or invents a
+		 * division name. The next screen is built from what the Site actually
+		 * returned, so it has to survive the redirect.
+		 */
+		set_transient( 'lawp_discovered', array(
+			'site_id'  => $site,
+			'model'    => $report['model'],
+			'teams'    => $report['teams'],
+			'programs' => self::live_programs( $progs->rows, $regs->rows ),
+			'field'    => $report['division_field_values'],
+		), 1800 );
+
+		set_transient( 'lawp_admin_report', $discovery->explain( $report ), 300 );
+		self::notice( 'success', esc_html__( 'Site read. Nothing was changed. Confirm the details below to publish it.', 'leagueapps-wp' ) );
 		self::back();
+	}
+
+	/**
+	 * Programs worth offering, newest first, with how many teams are in each.
+	 *
+	 * Completed programs are left out. A ten year old Site has hundreds of them
+	 * and none is what somebody is setting up today.
+	 *
+	 * @return array<int,array{id:int,name:string,teams:int}>
+	 */
+	private static function live_programs( array $programs, array $registrations ): array {
+		$teams = array();
+
+		foreach ( $registrations as $row ) {
+			$id   = (int) ( $row['programId'] ?? 0 );
+			$team = trim( (string) ( $row['team'] ?? '' ) );
+
+			if ( $id > 0 && '' !== $team ) {
+				$teams[ $id ][ $team ] = true;
+			}
+		}
+
+		$out = array();
+
+		foreach ( $programs as $program ) {
+			$state = strtoupper( (string) ( $program['programState'] ?? $program['state'] ?? '' ) );
+
+			if ( in_array( $state, array( 'COMPLETED', 'ARCHIVED', 'CANCELLED', 'CANCELED' ), true ) ) {
+				continue;
+			}
+
+			$id = (int) ( $program['id'] ?? 0 );
+
+			$out[] = array(
+				'id'    => $id,
+				'name'  => (string) ( $program['name'] ?? '' ),
+				'teams' => count( $teams[ $id ] ?? array() ),
+			);
+		}
+
+		usort( $out, static fn( array $a, array $b ): int => $b['id'] <=> $a['id'] );
+
+		return $out;
 	}
 
 	public static function handle_dry_run(): void {
@@ -673,6 +901,57 @@ final class Admin {
 	public static function handle_save_event(): void {
 		self::guard();
 		check_admin_referer( 'lawp_save_event' );
+
+		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
+		$site  = isset( $_POST['site_id'] ) ? (int) $_POST['site_id'] : 0;
+		$key   = sanitize_title( $title );
+
+		if ( '' === $key || $site <= 0 ) {
+			self::notice( 'error', esc_html__( 'Give the event a name. Nothing was saved.', 'leagueapps-wp' ) );
+			self::back();
+		}
+
+		$divisions = self::divisions_from_input(
+			isset( $_POST['division_label'] ) ? (array) wp_unslash( $_POST['division_label'] ) : array(),
+			isset( $_POST['division_source'] ) ? (array) wp_unslash( $_POST['division_source'] ) : array(),
+			isset( $_POST['division_order'] ) ? (array) wp_unslash( $_POST['division_order'] ) : array()
+		);
+
+		if ( array() === $divisions ) {
+			self::notice( 'error', esc_html__( 'Give at least one program a heading, or there is nothing to publish. Nothing was saved.', 'leagueapps-wp' ) );
+			self::back();
+		}
+
+		$show_location = ! empty( $_POST['show_location'] );
+
+		Settings::save_event( $key, array(
+			'site_id'                  => $site,
+			'divisions'                => array_values( $divisions ),
+			'program_ids'              => array(),
+			'program_filter'           => isset( $_POST['program_filter'] ) ? sanitize_text_field( wp_unslash( $_POST['program_filter'] ) ) : '',
+			'display_title'            => $title,
+			'unknown_division_policy'  => 'hold_for_review',
+			'require_payment'          => ! empty( $_POST['require_payment'] ),
+			'show_location'            => $show_location,
+			'show_captain'             => ! empty( $_POST['show_captain'] ),
+			'show_roster_count'        => false,
+			// Loaded only when locations are shown, so an event that does not
+			// publish them does not carry a lookup table it never consults.
+			'metros'                   => $show_location ? require LAWP_DIR . 'presets/us-metros.php' : array(),
+			'max_deactivation_count'   => 10,
+			'max_deactivation_percent' => 25,
+			'min_roster'               => 1,
+			'timezone'                 => wp_timezone_string(),
+		) );
+
+		delete_transient( 'lawp_discovered' );
+
+		self::notice( 'success', sprintf(
+			/* translators: 1: event name, 2: number of divisions. */
+			esc_html__( 'Saved "%1$s" with %2$d division(s). Nothing is published yet: press "Check for changes" to see what would appear, then "Update the page now".', 'leagueapps-wp' ),
+			esc_html( $title ),
+			count( $divisions )
+		) );
 		self::back();
 	}
 
@@ -680,6 +959,60 @@ final class Admin {
 		self::guard();
 		check_admin_referer( 'lawp_delete_event' );
 		self::back();
+	}
+
+	/**
+	 * Turn the confirmation form into a division map.
+	 *
+	 * Separate from the request handler so it can be tested without an HTTP
+	 * round trip, which is the only reason the mapping rules below are checkable
+	 * at all.
+	 *
+	 * ONE ENTRY PER HEADING, NOT PER PROGRAM. Several programs commonly feed one
+	 * heading: a Site may run "Open C Division" and "2026 Summer (C Division)" in
+	 * the same season. Labels are grouped, and each program name becomes an alias
+	 * of the heading it was mapped to. Using the whole program name as the alias
+	 * is what makes matching work without anybody inventing a rule.
+	 *
+	 * AN EMPTY HEADING MEANS HOLD IT BACK. That is a real choice and the right
+	 * default for anything the operator did not recognise, so it is silent rather
+	 * than an error.
+	 *
+	 * @return array<string,array{key:string,label:string,order:int,aliases:string[],visible:bool}>
+	 */
+	public static function divisions_from_input( array $labels, array $sources, array $orders ): array {
+		$divisions = array();
+
+		foreach ( $labels as $i => $label ) {
+			$label = sanitize_text_field( (string) $label );
+
+			if ( '' === $label ) {
+				continue;
+			}
+
+			$key    = sanitize_title( $label );
+			$source = sanitize_text_field( (string) ( $sources[ $i ] ?? '' ) );
+
+			if ( '' === $key ) {
+				continue;
+			}
+
+			if ( ! isset( $divisions[ $key ] ) ) {
+				$divisions[ $key ] = array(
+					'key'     => $key,
+					'label'   => $label,
+					'order'   => (int) ( $orders[ $i ] ?? 0 ),
+					'aliases' => array(),
+					'visible' => true,
+				);
+			}
+
+			if ( '' !== $source && ! in_array( $source, $divisions[ $key ]['aliases'], true ) ) {
+				$divisions[ $key ]['aliases'][] = $source;
+			}
+		}
+
+		return $divisions;
 	}
 
 	/**

@@ -23,6 +23,16 @@ return array(
 	/*
 	 * One Legends division rather than two.
 	 *
+	 * A LEAGUE MAY WANT THEM UNDER D INSTEAD, and that is configuration, not a
+	 * rule this file should encode. In International Pride Softball, Legends is
+	 * the 50-and-over bracket and often has a single team, so it plays within D
+	 * Division. Other organisations do not do that.
+	 *
+	 * To publish them that way, give the Legends program the heading "D Division"
+	 * on the setup screen. Several programs can share one heading; each program
+	 * name simply becomes another alias of it. Nothing in the plugin needs to
+	 * know about the convention.
+	 *
 	 * Source data is often inconsistent here: a league that renamed Masters to
 	 * Legends has both in its history, and may also carry "Legends D" from when
 	 * the division was graded. Collapsing them keeps a decade of programs under
@@ -31,5 +41,5 @@ return array(
 	 * If a Site genuinely runs Legends AND Legends D as separate competitions,
 	 * split this into two entries.
 	 */
-	array( 'key' => 'legends', 'label' => 'Legends Division', 'order' => 80, 'aliases' => array( 'legends d', 'legend d', 'legends-d', 'legends', 'masters d', 'masters', 'master d', 'master' ) ),
+	array( 'key' => 'legends', 'label' => 'Legends', 'order' => 80, 'aliases' => array( 'legends d', 'legend d', 'legends-d', 'legends', 'masters d', 'masters', 'master d', 'master' ) ),
 );

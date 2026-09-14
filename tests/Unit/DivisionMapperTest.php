@@ -108,6 +108,38 @@ final class DivisionMapperTest extends TestCase {
 		self::assertSame( 'legends', $map->find_in( 'Fall 2026 Legends D' ) );
 	}
 
+	/**
+	 * The case longest-first got wrong, found on a live Site.
+	 *
+	 * "legends d division" contains "d division", which is ten characters, while
+	 * "legends d" is nine. Longest-alias-first therefore filed Legends teams
+	 * under D. Nobody noticed because no Legends team had registered yet, which
+	 * is exactly the kind of bug that surfaces on the busiest day of the season.
+	 */
+	#[DataProvider( 'compound_division_names' )]
+	public function test_the_earliest_match_wins_not_the_longest( string $program, string $expected ): void {
+		self::assertSame( $expected, Fixtures::division_map()->find_in( $program ), $program );
+	}
+
+	public static function compound_division_names(): iterable {
+		yield 'the real one'      => array( '2026 Texas Hoedown (Legends D Division)', 'legends' );
+		yield 'without brackets'  => array( 'Legends D Division 2026', 'legends' );
+		yield 'masters variant'   => array( '2016 Masters D Division', 'legends' );
+		yield 'plain D still D'   => array( '2026 Texas Hoedown (D Division)', 'd' );
+		yield 'open D still D'    => array( 'Open D Division Fall 2026', 'd' );
+		yield 'womens D is womens'=> array( "2018 Women's D/E Division", 'womens' );
+	}
+
+	/** Length still decides when two aliases start at the same place. */
+	public function test_length_breaks_a_tie_at_the_same_position(): void {
+		$map = new DivisionMap( array(
+			array( 'key' => 'a',  'label' => 'A',      'order' => 10, 'aliases' => array( 'open' ) ),
+			array( 'key' => 'ab', 'label' => 'A/B',    'order' => 20, 'aliases' => array( 'open a/b' ) ),
+		) );
+
+		self::assertSame( 'ab', $map->find_in( 'Open A/B Division' ) );
+	}
+
 	public function test_a_label_is_an_alias_of_itself(): void {
 		$map = new DivisionMap( array(
 			array( 'key' => 'masters', 'label' => 'Masters Division', 'order' => 10 ),

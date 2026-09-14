@@ -105,14 +105,42 @@ final class DivisionMap {
 			return null;
 		}
 
+		/*
+		 * EARLIEST MATCH WINS, then longest. Both halves were arrived at by being
+		 * wrong first.
+		 *
+		 * Longest-alias-first came first, so that "Legends D" was not read as
+		 * "D". That held until a real program called "Legends D Division"
+		 * appeared: there "d division" is ten characters and "legends d" is nine,
+		 * the longer alias won, and Legends teams were about to be filed under D.
+		 * Invisible, because no Legends team had registered yet.
+		 *
+		 * Position is the better rule anyway. A division name is what the program
+		 * is called, near the front, rather than a fragment further along. Length
+		 * still breaks ties, so "open d" beats "d" where both start together.
+		 */
+		$best_key = null;
+		$best_at  = PHP_INT_MAX;
+		$best_len = 0;
+
 		foreach ( $this->aliases as $alias => $key ) {
 			$pattern = '/(?<![a-z0-9])' . preg_quote( $alias, '/' ) . '(?![a-z0-9])/';
-			if ( 1 === preg_match( $pattern, $haystack ) ) {
-				return $key;
+
+			if ( 1 !== preg_match( $pattern, $haystack, $m, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+
+			$at  = (int) $m[0][1];
+			$len = strlen( $alias );
+
+			if ( $at < $best_at || ( $at === $best_at && $len > $best_len ) ) {
+				$best_key = $key;
+				$best_at  = $at;
+				$best_len = $len;
 			}
 		}
 
-		return null;
+		return $best_key;
 	}
 
 	/**
