@@ -40,9 +40,25 @@ final class LAWP_Auth {
 		return $this->last_error;
 	}
 
+	/**
+	 * The cache key, which must be per credential.
+	 *
+	 * This was the single key 'lawp_token' for every credential on the install.
+	 * With one LeagueApps account that is invisible. With two it is a real bug:
+	 * the first account to authenticate populates the cache, the second reuses
+	 * its token, and LeagueApps answers 403 - which reads as a permissions
+	 * problem when the fault is that the wrong key signed the request.
+	 *
+	 * Hashed rather than raw, because a transient name ends up in the options
+	 * table and in any dump of it.
+	 */
+	private function cache_key() {
+		return 'lawp_token_' . substr( hash( 'sha256', $this->client_id ), 0, 20 );
+	}
+
 	/** A valid token, cached. They last 899s; re-signing per request buys nothing. */
 	public function token() {
-		$cached = get_transient( 'lawp_token' );
+		$cached = get_transient( $this->cache_key() );
 		if ( is_string( $cached ) && '' !== $cached ) {
 			return $cached;
 		}
@@ -80,7 +96,7 @@ final class LAWP_Auth {
 		}
 
 		$ttl = max( 60, (int) ( $body['expires_in'] ?? 900 ) - self::SKEW );
-		set_transient( 'lawp_token', $body['access_token'], $ttl );
+		set_transient( $this->cache_key(), $body['access_token'], $ttl );
 
 		return $body['access_token'];
 	}
@@ -98,7 +114,7 @@ final class LAWP_Auth {
 	}
 
 	public function forget() {
-		delete_transient( 'lawp_token' );
+		delete_transient( $this->cache_key() );
 	}
 
 	/** Build and sign the RS256 assertion. */

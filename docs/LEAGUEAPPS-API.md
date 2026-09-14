@@ -144,3 +144,62 @@ The host allowlist matched `leagueapps.com`. The API is on `leagueapps.io`.
 
 Same class of mistake twice in this project: a check written against the domain
 somebody had in front of them rather than the one the code actually calls.
+
+## The cursor is `last-updated`, not `last-id`
+
+Both parameters are required, and passing one without the other returns a 400
+naming the missing one. That makes them look like a pair of equals. They are not.
+
+```
+last-updated   millisecond epoch watermark   THIS is what advances
+last-id        tie-breaker for rows sharing that timestamp
+```
+
+Advancing only `last-id` returns the same first page for ever. On a Site with
+fewer than a thousand rows everything arrives in one page and nothing shows. On a
+Site with ten years of registrations it caps silently at one thousand.
+
+That is not hypothetical. On the league Site here, 8,000+ rows were reachable and
+1,000 were being read, and the only reason it failed loudly rather than publishing
+a tenth of a league was a guard that refuses to loop when the cursor stops moving.
+
+Correct paging:
+
+```
+page 1: last-updated=0              -> 1000 rows, max lastUpdated 1413935079000
+page 2: last-updated=1413935079000  -> 1000 rows, max lastUpdated 1441900633000
+page 3: last-updated=1441900633000  -> 1000 rows, ...
+```
+
+Deduplicate by `id`. A row sharing the boundary timestamp can legitimately appear
+on both sides of it.
+
+Verified end to end: 11 pages, 10,763 rows, terminated `exhausted`.
+
+## One token cache per credential
+
+A Site's key is refused by another Site with HTTP 403, proved both directions. So
+an install serving two LeagueApps accounts needs two credentials — and a token
+cache keyed by credential.
+
+Caching under one global key means the first account to authenticate populates it,
+the second reuses that token, and LeagueApps answers 403. It reads as a permissions
+problem when the fault is that the wrong key signed the request.
+
+## Still no schedules or standings
+
+Re-probed with a valid token on both hosts:
+
+```
+api.leagueapps.io/v2/sites/{site}/programs/{id}/schedule     404
+api.leagueapps.io/v2/sites/{site}/programs/{id}/games         404
+api.leagueapps.io/v2/sites/{site}/programs/{id}/standings     404
+api.leagueapps.io/v2/sites/{site}/programs/{id}/teams         404
+api.leagueapps.io/v2/sites/{site}/locations                   404
+admin.leagueapps.io/v2/sites/{site}/export/schedule           404
+admin.leagueapps.io/v2/sites/{site}/export/standings          404
+```
+
+Two endpoints exist on this credential type: `export/registrations-2` and
+`export/programs`. Teams are derived from registrations. Schedules and standings
+cannot be built from what a Private API Key reaches.

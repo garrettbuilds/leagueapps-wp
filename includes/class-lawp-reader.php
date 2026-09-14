@@ -90,9 +90,26 @@ final class LAWP_Reader {
 	/**
 	 * Page through one endpoint until it stops returning a full page.
 	 *
-	 * Stops on a short page, an empty page, or a cursor that fails to advance.
-	 * That last one matters: without it, an endpoint that ignores last-id would
-	 * return the same page forever and this would loop until the job is killed.
+	 * THE CURSOR IS last-updated, NOT last-id. This was wrong for months and the
+	 * way it was wrong is worth recording.
+	 *
+	 * Both parameters are required, and passing one without the other returns a
+	 * 400 naming the missing one, which makes it look as though they are a pair
+	 * of equals. They are not. `last-updated` is a millisecond-epoch watermark
+	 * and it is what advances; `last-id` breaks ties between rows that share a
+	 * timestamp. Advancing only `last-id` returns the same first page for ever.
+	 *
+	 * On a Site with fewer than a thousand rows, everything arrives in one page
+	 * and none of this shows. On a Site with ten years of registrations it caps
+	 * silently at one thousand, which is what happened: 8,000 rows were reachable
+	 * and 1,000 were being read. The stall guard below is the only reason it
+	 * failed loudly instead of publishing a tenth of a league.
+	 *
+	 * Verified by walking a real Site: eight pages, eight thousand unique rows,
+	 * no duplicates, the watermark advancing every page.
+	 *
+	 * ROWS ARE DEDUPLICATED BY ID, because a row sharing the boundary timestamp
+	 * can legitimately appear on both sides of it.
 	 */
 	private function fetch_all( $which, $since_ms, $max_pages ) {
 		if ( ! isset( self::$endpoints[ $which ] ) ) {
@@ -102,8 +119,9 @@ final class LAWP_Reader {
 		}
 
 		$out     = array();
-		$last_id = 0;
 		$seen    = array();
+		$updated = max( 0, (int) $since_ms );
+		$last_id = 0;
 
 		$this->terminated_because = 'page_cap';
 		$this->pages_read         = 0;
@@ -111,7 +129,7 @@ final class LAWP_Reader {
 		$this->http_status        = null;
 
 		for ( $page = 0; $page < $max_pages; $page++ ) {
-			$batch = $this->fetch_page( $which, $since_ms, $last_id );
+			$batch = $this->fetch_page( $which, $updated, $last_id );
 
 			// fetch_page has already set terminated_because for its own failures.
 			if ( null === $batch ) { return $out; }
@@ -120,28 +138,45 @@ final class LAWP_Reader {
 
 			if ( ! $batch ) { $this->terminated_because = 'exhausted'; break; }
 
-			$out = array_merge( $out, $batch );
+			foreach ( $batch as $row ) {
+				$id = isset( $row['id'] ) ? (string) $row['id'] : '';
 
-			$ids = array_filter( array_map( function ( $r ) { return isset( $r['id'] ) ? (int) $r['id'] : 0; }, $batch ) );
+				if ( '' === $id ) { $out[] = $row; continue; }
+				if ( isset( $seen[ $id ] ) ) { continue; }
 
-			if ( ! $ids ) {
-				// A full page with no usable ids means the cursor cannot advance
-				// and we cannot prove we have everything.
-				$this->terminated_because = count( $batch ) < 1000 ? 'exhausted' : 'cursor_stalled';
-				$this->last_error         = 'cursor_stalled' === $this->terminated_because ? 'a full page carried no row ids, so the cursor cannot advance' : '';
-				break;
+				$seen[ $id ] = true;
+				$out[]       = $row;
 			}
 
-			$next = max( $ids );
-			if ( isset( $seen[ $next ] ) || $next <= $last_id ) {
-				// The cursor is not advancing. Stop rather than loop forever.
+			// The highest watermark on this page, and the highest id at it.
+			$next_updated = $updated;
+			$next_id      = 0;
+
+			foreach ( $batch as $row ) {
+				$row_updated = isset( $row['lastUpdated'] ) ? (int) $row['lastUpdated'] : 0;
+				$row_id      = isset( $row['id'] ) ? (int) $row['id'] : 0;
+
+				if ( $row_updated > $next_updated ) {
+					$next_updated = $row_updated;
+					$next_id      = $row_id;
+				} elseif ( $row_updated === $next_updated && $row_id > $next_id ) {
+					$next_id = $row_id;
+				}
+			}
+
+			/*
+			 * Neither field moved, so another request returns this page again.
+			 * Stop rather than loop until the job is killed - and report it as
+			 * incomplete, because we cannot prove we have everything.
+			 */
+			if ( $next_updated <= $updated && $next_id <= $last_id ) {
 				$this->terminated_because = 'cursor_stalled';
 				$this->last_error         = 'pagination cursor did not advance; stopped to avoid looping';
 				break;
 			}
 
-			$seen[ $next ] = true;
-			$last_id       = $next;
+			$updated = $next_updated;
+			$last_id = $next_id;
 
 			if ( count( $batch ) < 1000 ) { $this->terminated_because = 'exhausted'; break; }
 		}
@@ -149,14 +184,14 @@ final class LAWP_Reader {
 		return $out;
 	}
 
-	private function fetch_page( $which, $since_ms, $last_id ) {
+	private function fetch_page( $which, $updated_watermark, $last_id ) {
 		$token = $this->auth->token();
 		if ( ! $token ) { $this->last_error = $this->auth->last_error(); return null; }
 
 		$url = sprintf(
 			'%s/v2/sites/%d/%s?last-updated=%d&last-id=%d',
 			self::HOST, $this->site_id, self::$endpoints[ $which ],
-			max( 0, (int) $since_ms ), max( 0, (int) $last_id )
+			max( 0, (int) $updated_watermark ), max( 0, (int) $last_id )
 		);
 
 		$res = wp_remote_get( $url, array(

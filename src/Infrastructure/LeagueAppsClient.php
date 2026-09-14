@@ -28,6 +28,23 @@ final class LeagueAppsClient implements ClientInterface {
 		private readonly LAWP_Auth $auth,
 	) {}
 
+	/**
+	 * A client signed with the credential belonging to this Site.
+	 *
+	 * Null rather than a client signed with somebody else's key. A key issued for
+	 * one Site returns 403 on another, and a 403 reads as a permissions problem
+	 * when the real fault is that no credential was configured at all.
+	 */
+	public static function for_site( int $site_id ): ?self {
+		$creds = Credentials::for_site( $site_id );
+
+		if ( null === $creds ) {
+			return null;
+		}
+
+		return new self( new LAWP_Auth( $creds['client_id'], $creds['cert_path'] ) );
+	}
+
 	public function registrations( int $site_id, int $since_ms = 0 ): SourceResult {
 		return $this->read( $site_id, 'registrations', $since_ms, true );
 	}

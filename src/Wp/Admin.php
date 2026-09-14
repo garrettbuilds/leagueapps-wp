@@ -21,6 +21,7 @@ declare( strict_types=1 );
 namespace LeagueAppsWP\Wp;
 
 use LAWP_Auth;
+use LeagueAppsWP\Infrastructure\Credentials;
 use LeagueAppsWP\Infrastructure\LeagueAppsClient;
 use LeagueAppsWP\Infrastructure\Schema;
 use LeagueAppsWP\Infrastructure\Settings;
@@ -111,51 +112,76 @@ final class Admin {
 		echo '</div>';
 	}
 
-	/** Can we talk to LeagueApps at all? Answered before anything else is offered. */
+	/**
+	 * One row per LeagueApps account, because there is usually more than one.
+	 *
+	 * A league that runs a tournament typically has a second LeagueApps Site with
+	 * its own key. Showing a single global connection hid that, and a numeric
+	 * Site id means nothing to whoever reads this screen six months later, so
+	 * each row names the events it feeds.
+	 */
 	private static function connection_panel(): void {
-		$configured = defined( 'LAWP_CLIENT_ID' ) && defined( 'LAWP_CERT_PATH' );
+		$sites = Credentials::configured_sites();
 
 		echo '<div class="card" style="max-width:none;padding:12px 16px;">';
-		echo '<h2 style="margin-top:0;">' . esc_html__( 'Connection', 'leagueapps-wp' ) . '</h2>';
+		echo '<h2 style="margin-top:0;">' . esc_html__( 'LeagueApps accounts', 'leagueapps-wp' ) . '</h2>';
 
-		if ( ! $configured ) {
-			/*
-			 * The credential is NOT editable here, deliberately.
-			 *
-			 * A key in the database is in every export and every backup, and is
-			 * readable by anyone who reaches wp-admin. wp-config.php is neither.
-			 */
-			echo '<p>' . esc_html__( 'Not connected. Add these to wp-config.php, then reload this page:', 'leagueapps-wp' ) . '</p>';
-			echo '<pre style="background:#f6f7f7;padding:12px;">'
-				. "define( 'LAWP_CLIENT_ID', 'your-private-api-key-name' );\n"
-				. "define( 'LAWP_CERT_PATH', '/var/www/your-site/private/leagueapps.p12' );</pre>";
+		if ( array() === $sites ) {
+			echo '<p>' . esc_html__( 'None connected. Add this to wp-config.php, one entry per LeagueApps Site, then reload:', 'leagueapps-wp' ) . '</p>';
+			echo '<pre style="background:#f6f7f7;padding:12px;overflow:auto;">'
+				. "define( 'LAWP_CREDENTIALS', array(\n"
+				. "    9772 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/tournament.p12' ),\n"
+				. "    1234 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/league.p12' ),\n"
+				. ") );</pre>";
 			echo '<p class="description">'
-				. esc_html__( 'The certificate belongs above your web root but inside your site folder, mode 0600. Hosts commonly block the site user from /opt, so that is the wrong place for it.', 'leagueapps-wp' )
+				. esc_html__( 'Each Site needs its own key: a key issued for one Site is refused by another. Certificates belong above your web root but inside your site folder, mode 0600. Hosts commonly block the site user from /opt.', 'leagueapps-wp' )
 				. '</p></div>';
 			return;
 		}
 
-		$readable = is_readable( (string) LAWP_CERT_PATH );
-		$auth     = new LAWP_Auth( LAWP_CLIENT_ID, LAWP_CERT_PATH );
-		$token    = $readable ? $auth->token() : null;
+		// Which events each account feeds, so a Site id is never the only label.
+		$events_by_site = array();
 
-		echo '<table class="widefat striped" style="margin-bottom:8px;"><tbody>';
-		self::status_row( __( 'Certificate', 'leagueapps-wp' ), $readable, $readable ? __( 'Readable', 'leagueapps-wp' ) : __( 'Not readable by the web server', 'leagueapps-wp' ) );
-		self::status_row(
-			__( 'LeagueApps', 'leagueapps-wp' ),
-			(bool) $token,
-			$token ? sprintf( /* translators: %s: OAuth scope. */ __( 'Connected, scope %s', 'leagueapps-wp' ), $auth->scope() ?: '?' ) : esc_html( $auth->last_error() )
-		);
-		self::status_row( __( 'Writes to LeagueApps', 'leagueapps-wp' ), true, __( 'Blocked. This plugin has no method that can write.', 'leagueapps-wp' ) );
-		echo '</tbody></table>';
-
-		if ( ! $token && false !== stripos( $auth->last_error(), 'block' ) ) {
-			echo '<p class="description">'
-				. esc_html__( 'Something on this site is refusing the request. Signing in uses a POST even though it only buys read access, so a read-only guard will stop it. Allow POST to auth.leagueapps.io/v2/auth/token specifically rather than relaxing the guard.', 'leagueapps-wp' )
-				. '</p>';
+		foreach ( Settings::events() as $key => $stored ) {
+			$events_by_site[ (int) ( $stored['site_id'] ?? 0 ) ][] = (string) ( $stored['display_title'] ?? $key );
 		}
 
-		echo '</div>';
+		echo '<table class="widefat striped"><thead><tr>';
+		foreach ( array( __( 'Site', 'leagueapps-wp' ), __( 'Publishes', 'leagueapps-wp' ), __( 'Certificate', 'leagueapps-wp' ), __( 'Key', 'leagueapps-wp' ), __( 'Connection', 'leagueapps-wp' ) ) as $h ) {
+			echo '<th>' . esc_html( $h ) . '</th>';
+		}
+		echo '</tr></thead><tbody>';
+
+		foreach ( $sites as $site ) {
+			$readable = Credentials::readable( $site );
+			$creds    = Credentials::for_site( $site );
+			$token    = null;
+			$error    = '';
+
+			if ( $readable && null !== $creds ) {
+				$auth  = new LAWP_Auth( $creds['client_id'], $creds['cert_path'] );
+				$token = $auth->token();
+				$error = $auth->last_error();
+			}
+
+			printf(
+				'<tr><td><strong>%d</strong></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>',
+				$site,
+				esc_html( isset( $events_by_site[ $site ] ) ? implode( ', ', $events_by_site[ $site ] ) : __( 'nothing yet', 'leagueapps-wp' ) ),
+				$readable ? '<span style="color:#00a32a;">&#10003;</span>' : '<span style="color:#d63638;">&#10007; ' . esc_html__( 'not readable', 'leagueapps-wp' ) . '</span>',
+				esc_html( Credentials::fingerprint( $site ) ),
+				$token
+					? '<span style="color:#00a32a;">&#10003; ' . esc_html__( 'read-only export', 'leagueapps-wp' ) . '</span>'
+					: '<span style="color:#d63638;">&#10007; ' . esc_html( $error ?: __( 'not connected', 'leagueapps-wp' ) ) . '</span>'
+			);
+		}
+
+		echo '</tbody></table>';
+
+		echo '<p class="description">'
+			. esc_html__( 'This plugin cannot write to LeagueApps. There is no method in it that can. LeagueApps stays the official record; this publishes a read-only copy.', 'leagueapps-wp' )
+			. ' ' . esc_html__( 'Keys are never shown here, only the last six characters so you can tell two apart.', 'leagueapps-wp' )
+			. '</p></div>';
 	}
 
 	private static function status_row( string $label, bool $ok, string $detail ): void {
@@ -605,7 +631,17 @@ final class Admin {
 			self::back();
 		}
 
-		$client = new LeagueAppsClient( new LAWP_Auth( LAWP_CLIENT_ID, LAWP_CERT_PATH ) );
+		$client = LeagueAppsClient::for_site( $site );
+
+		if ( null === $client ) {
+			self::notice( 'error', sprintf(
+				/* translators: %d: LeagueApps Site id. */
+				esc_html__( 'No credential is configured for Site %d. Add one to wp-config.php first.', 'leagueapps-wp' ),
+				$site
+			) );
+			self::back();
+		}
+
 		$regs   = $client->registrations( $site );
 		$progs  = $client->programs( $site );
 
@@ -709,7 +745,17 @@ final class Admin {
 		$clock      = new SystemClock();
 		$repository = new WpdbTeamRepository( $wpdb, $clock );
 
-		$client = new LeagueAppsClient( new LAWP_Auth( LAWP_CLIENT_ID, LAWP_CERT_PATH ) );
+		$client = LeagueAppsClient::for_site( $config->site_id );
+
+		if ( null === $client ) {
+			self::notice( 'error', sprintf(
+				/* translators: %d: LeagueApps Site id. */
+				esc_html__( 'No credential is configured for Site %d.', 'leagueapps-wp' ),
+				$config->site_id
+			) );
+			self::back();
+		}
+
 		$source = $client->registrations( $config->site_id );
 
 		$planner = new SyncPlanner( new SourceValidator(), new TeamNormalizer( new DivisionMapper( $config->divisions ) ) );
