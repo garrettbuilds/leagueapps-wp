@@ -59,7 +59,7 @@ another:
 ```php
 // wp-config.php
 define( 'LAWP_CREDENTIALS', array(
-    9772 => array( 'client_id' => 'key-name', 'cert_path' => '/var/www/example.com/private/tournament.p12' ),
+    1000001 => array( 'client_id' => 'key-name', 'cert_path' => '/var/www/example.com/private/tournament.p12' ),
     1234 => array( 'client_id' => 'key-name', 'cert_path' => '/var/www/example.com/private/league.p12' ),
 ) );
 ```

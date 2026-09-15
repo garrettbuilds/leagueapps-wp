@@ -58,6 +58,31 @@ final class SyncPlan {
 		return in_array( $this->status, array( self::PASS, self::NO_CHANGE ), true );
 	}
 
+	/**
+	 * What makes two plans the same plan, for "publish what I reviewed".
+	 *
+	 * The admin screen reviews a plan and publishes in a second request, which
+	 * has to re-read LeagueApps to write current data. Without something to
+	 * compare, "publish" silently applies whatever is true at publish time
+	 * rather than what a person approved a minute earlier.
+	 *
+	 * `source_hash` catches LeagueApps changing underneath. The status, change
+	 * count and summary catch the plan's own decision changing, which it can do
+	 * on its own if somebody edits the display settings between the two clicks.
+	 *
+	 * Deliberately not a hash of the changes themselves: a run id and a
+	 * timestamp differ on every plan, so hashing the whole object would make
+	 * every comparison fail and turn the guard into a permanent refusal.
+	 */
+	public function fingerprint(): string {
+		return hash( 'sha256', implode( '|', array(
+			$this->source_hash,
+			$this->status,
+			(string) count( $this->changes ),
+			(string) json_encode( $this->summary ),
+		) ) );
+	}
+
 	public function has_error_code( string $code ): bool {
 		foreach ( $this->errors as $error ) {
 			if ( $code === ( $error['code'] ?? '' ) ) {

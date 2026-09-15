@@ -4,8 +4,8 @@
  *
  * A league commonly has more than one LeagueApps account: a tournament runs on
  * its own Site with its own key, separately from the regular season. Proved by
- * test rather than assumed - a key issued for Site 2946 gets HTTP 403 on Site
- * 9772 and vice versa. Each Site needs its own credential, and one global pair
+ * test rather than assumed - a key issued for one Site gets HTTP 403 on another
+ * and vice versa, which we confirmed on two live Sites. Each Site needs its own credential, and one global pair
  * of constants cannot express that.
  *
  * WHY THIS IS NOT IN THE DATABASE
@@ -29,8 +29,8 @@ final class Credentials {
 	 * should use:
 	 *
 	 *   define( 'LAWP_CREDENTIALS', array(
-	 *       9772 => array( 'client_id' => 'abc…', 'cert_path' => '/var/www/x/private/hoedown.p12' ),
-	 *       2946 => array( 'client_id' => 'def…', 'cert_path' => '/var/www/x/private/league.p12' ),
+	 *       1000001 => array( 'client_id' => 'abc…', 'cert_path' => '/var/www/x/private/tournament.p12' ),
+	 *       1000002 => array( 'client_id' => 'def…', 'cert_path' => '/var/www/x/private/league.p12' ),
 	 *   ) );
 	 *
 	 * The older single pair still works and is treated as the credential for

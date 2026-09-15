@@ -69,12 +69,71 @@ final class Admin {
 
 	/* ---------------------------------------------------------------- render */
 
+	/**
+	 * The three questions this screen gets asked, in the order they get asked.
+	 *
+	 * Everything used to render in one column: credentials, a dark block of
+	 * sync output, display options and the publish button, all at once. Someone
+	 * arriving to answer "are the teams up to date?" had to scroll past
+	 * wp-config instructions to find out.
+	 *
+	 * Overview answers that question. Display is where you change what the page
+	 * shows. Connection is where you go when something is broken, and it is the
+	 * only place the technical output lives.
+	 */
+	private const TABS = array( 'overview', 'display', 'diagnostics' );
+
+	/**
+	 * Labels as literal __() calls, not a translated constant.
+	 *
+	 * A constant cannot hold a __() call, and translate( $var ) is invisible to
+	 * string extraction: the tabs would ship untranslatable while looking
+	 * translated in the source.
+	 */
+	private static function tab_label( string $slug ): string {
+		switch ( $slug ) {
+			case 'display':
+				return __( 'Display on Website', 'leagueapps-wp' );
+			case 'diagnostics':
+				return __( 'Connection & Diagnostics', 'leagueapps-wp' );
+			default:
+				return __( 'Overview', 'leagueapps-wp' );
+		}
+	}
+
+	/**
+	 * Query arg, not JavaScript. Each tab gets its own URL, which matters when
+	 * somebody is describing what they can see over the phone.
+	 */
+	public static function current_tab(): string {
+		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'overview';
+
+		return in_array( $tab, self::TABS, true ) ? $tab : 'overview';
+	}
+
+	private static function tab_nav( string $current ): void {
+		echo '<nav class="nav-tab-wrapper wp-clearfix" aria-label="' . esc_attr__( 'LeagueApps sections', 'leagueapps-wp' ) . '">';
+
+		foreach ( self::TABS as $slug ) {
+			printf(
+				'<a href="%s" class="nav-tab%s"%s>%s</a>',
+				esc_url( admin_url( 'admin.php?page=' . self::SLUG . '&tab=' . $slug ) ),
+				$slug === $current ? ' nav-tab-active' : '',
+				$slug === $current ? ' aria-current="page"' : '',
+				esc_html( self::tab_label( $slug ) )
+			);
+		}
+
+		echo '</nav>';
+	}
+
 	public static function render(): void {
 		self::guard();
 
 		$events = Settings::events();
 		$notice = get_transient( 'lawp_admin_notice' );
 		delete_transient( 'lawp_admin_notice' );
+		$tab = self::current_tab();
 
 		echo '<div class="wrap"><h1>' . esc_html__( 'LeagueApps', 'leagueapps-wp' ) . '</h1>';
 
@@ -86,30 +145,51 @@ final class Admin {
 			);
 		}
 
-		self::connection_panel();
-
-		$report = get_transient( 'lawp_admin_report' );
-
-		if ( is_string( $report ) && '' !== $report ) {
-			delete_transient( 'lawp_admin_report' );
-			echo '<h2>' . esc_html__( 'Last run', 'leagueapps-wp' ) . '</h2>';
-			echo '<pre class="lawp-report" style="background:#1d2327;color:#f0f0f1;padding:16px;overflow:auto;max-height:520px;border-radius:4px;">'
-				. esc_html( $report ) . '</pre>';
-		}
-
-		self::confirm_form();
-
+		/*
+		 * Before anything is connected there is nothing to put in three tabs,
+		 * and offering them would be three ways to look at an empty screen.
+		 */
 		if ( array() === $events ) {
 			self::first_run();
-		} else {
+			echo '</div>';
+			return;
+		}
+
+		self::tab_nav( $tab );
+		echo '<div style="margin-top:16px;">';
+
+		if ( 'overview' === $tab ) {
+			foreach ( $events as $key => $stored ) {
+				self::overview_panel( (string) $key, (array) $stored );
+			}
+		} elseif ( 'display' === $tab ) {
+			self::confirm_form();
+
 			foreach ( $events as $key => $stored ) {
 				self::event_panel( (string) $key, (array) $stored );
 			}
 
 			self::add_event_form();
+		} else {
+			self::connection_panel();
+
+			$report = get_transient( 'lawp_admin_report' );
+
+			if ( is_string( $report ) && '' !== $report ) {
+				delete_transient( 'lawp_admin_report' );
+				echo '<h2>' . esc_html__( 'Full report from the last check', 'leagueapps-wp' ) . '</h2>';
+				echo '<p class="description">' . esc_html__( 'The unabridged output. Useful when reporting a problem.', 'leagueapps-wp' ) . '</p>';
+				echo '<pre class="lawp-report" style="background:#1d2327;color:#f0f0f1;padding:16px;overflow:auto;max-height:520px;border-radius:4px;">'
+					. esc_html( $report ) . '</pre>';
+			}
+
+			foreach ( $events as $key => $stored ) {
+				self::diagnostic_panel( (string) $key );
+				self::history_panel( (string) $key );
+			}
 		}
 
-		echo '</div>';
+		echo '</div></div>';
 	}
 
 	/**
@@ -124,14 +204,19 @@ final class Admin {
 		$sites = Credentials::configured_sites();
 
 		echo '<div class="card" style="max-width:none;padding:12px 16px;">';
-		echo '<h2 style="margin-top:0;">' . esc_html__( 'LeagueApps accounts', 'leagueapps-wp' ) . '</h2>';
+		echo '<h2 style="margin-top:0;">' . esc_html__( 'Connected LeagueApps sites', 'leagueapps-wp' ) . '</h2>';
 
 		if ( array() === $sites ) {
 			echo '<p>' . esc_html__( 'None connected. Add this to wp-config.php, one entry per LeagueApps Site, then reload:', 'leagueapps-wp' ) . '</p>';
 			echo '<pre style="background:#f6f7f7;padding:12px;overflow:auto;">'
 				. "define( 'LAWP_CREDENTIALS', array(\n"
-				. "    9772 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/tournament.p12' ),\n"
-				. "    1234 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/league.p12' ),\n"
+				/*
+				 * Placeholder Site ids. These were a real client's, which is a
+				 * needless thing to publish from a public repository: the sample
+				 * teaches the shape, and the shape does not need a real id.
+				 */
+				. "    1000001 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/tournament.p12' ),\n"
+				. "    1000002 => array( 'client_id' => 'your-key-name', 'cert_path' => '/var/www/your-site/private/league.p12' ),\n"
 				. ") );</pre>";
 			echo '<p class="description">'
 				. esc_html__( 'Each Site needs its own key: a key issued for one Site is refused by another. Certificates belong above your web root but inside your site folder, mode 0600. Hosts commonly block the site user from /opt.', 'leagueapps-wp' )
@@ -239,6 +324,7 @@ final class Admin {
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		wp_nonce_field( 'lawp_save_event' );
+		echo '<input type="hidden" name="tab" value="display">';
 		echo '<input type="hidden" name="action" value="lawp_save_event">';
 		printf( '<input type="hidden" name="site_id" value="%d">', (int) $found['site_id'] );
 
@@ -297,7 +383,7 @@ final class Admin {
 		self::checkbox_row( 'show_captain', __( 'Show the manager\'s name', 'leagueapps-wp' ), false, __( 'A team credit is ordinary public information. Showing it beside a location tells the world roughly where that person lives, so prefer one or the other.', 'leagueapps-wp' ) );
 		echo '</tbody></table>';
 
-		submit_button( __( 'Save and publish this event', 'leagueapps-wp' ) );
+		submit_button( __( 'Save display settings', 'leagueapps-wp' ) );
 		echo '</form></div>';
 	}
 
@@ -372,11 +458,12 @@ final class Admin {
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		wp_nonce_field( 'lawp_discover' );
+		echo '<input type="hidden" name="tab" value="display">';
 		echo '<input type="hidden" name="action" value="lawp_discover">';
 		echo '<p><label>' . esc_html__( 'LeagueApps Site id', 'leagueapps-wp' ) . ' ';
 		printf( '<input type="number" name="site_id" value="%s" required style="width:140px;">', esc_attr( (string) ( $site ?: '' ) ) );
 		echo '</label> ';
-		submit_button( __( 'Read this Site', 'leagueapps-wp' ), 'primary', 'submit', false );
+		submit_button( __( 'Read this site', 'leagueapps-wp' ), 'primary', 'submit', false );
 		echo '</p><p class="description">'
 			. esc_html__( 'The number in your LeagueApps console URL, for example /console/sites/1234. Reading changes nothing.', 'leagueapps-wp' )
 			. '</p></form>';
@@ -446,37 +533,170 @@ final class Admin {
 				esc_html( $config->divisions->label( $division ) ),
 				$count,
 				$count > 0
-					? esc_html__( 'Published', 'leagueapps-wp' )
+					? esc_html__( 'Showing on the website', 'leagueapps-wp' )
 					: '<em>' . esc_html__( 'Open, nobody entered yet', 'leagueapps-wp' ) . '</em>'
 			);
 		}
 
 		echo '</tbody></table>';
 
+		self::what_is_published( $config );
+
+		/*
+		 * The block is the supported route and the shortcode is the fallback for
+		 * a site not using the block editor. Presenting both as equals sent
+		 * people to copy a shortcode they did not need, so the shortcode is
+		 * behind a disclosure and the block is named in the open.
+		 */
+		echo '<p class="description">'
+			. esc_html__( 'Add the LeagueApps Teams block to any page or post to show this list.', 'leagueapps-wp' )
+			. '</p>';
+
 		printf(
-			'<p class="description">%s</p>',
+			'<details style="margin:8px 0;"><summary style="cursor:pointer;">%s</summary><p class="description" style="margin-top:8px;">%s<br><code>%s</code></p></details>',
+			esc_html__( 'Not using the block editor?', 'leagueapps-wp' ),
+			esc_html__( 'Paste this shortcode instead. It does the same thing.', 'leagueapps-wp' ),
+			esc_html( sprintf( '[leagueapps_teams event="%s" location="yes"]', $key ) )
+		);
+
+		echo '</div>';
+	}
+
+	/**
+	 * What somebody came here to find out: is the page current, and if not, what
+	 * would change.
+	 *
+	 * No settings, no credentials, no shortcode. Three actions in the language
+	 * of the job rather than the language of the code.
+	 */
+	private static function overview_panel( string $key, array $stored ): void {
+		global $wpdb;
+
+		$config = Settings::event( $key );
+
+		if ( null === $config ) {
+			return;
+		}
+
+		$clock      = new SystemClock();
+		$repository = new WpdbTeamRepository( $wpdb, $clock );
+		$teams      = $repository->active_for_event( $key );
+
+		$last = $wpdb->get_row( $wpdb->prepare(
+			'SELECT status, finished_at, creates, updates, deactivations, held FROM ' . Schema::runs_table()
+			. ' WHERE event_key = %s ORDER BY id DESC LIMIT 1',
+			$key
+		), ARRAY_A );
+
+		echo '<div class="card" style="max-width:none;padding:12px 16px;margin-top:16px;">';
+		printf(
+			'<h2 style="margin-top:0;">%s</h2>',
+			esc_html( '' !== $config->display_title ? $config->display_title : $key )
+		);
+
+		printf(
+			'<p style="font-size:14px;">%s</p>',
 			esc_html( sprintf(
-				/* translators: 1: shortcode. */
-				__( 'Put this anywhere, or use the LeagueApps Teams block: %s', 'leagueapps-wp' ),
-				sprintf( '[leagueapps_teams event="%s" location="yes"]', $key )
+				/* translators: %d: number of teams. */
+				_n( '%d team is on the website right now.', '%d teams are on the website right now.', count( $teams ), 'leagueapps-wp' ),
+				count( $teams )
 			) )
 		);
 
-		self::what_is_published( $config );
+		echo '<p>' . self::last_checked_sentence( $last ) . '</p>';
+
+		$pending = self::pending_review( $key );
+
+		if ( null !== $pending ) {
+			printf(
+				'<div class="notice notice-info inline" style="margin:8px 0;"><p><strong>%s</strong><br>%s</p></div>',
+				esc_html__( 'You have reviewed changes that are not published yet.', 'leagueapps-wp' ),
+				esc_html( $pending['summary'] )
+			);
+		}
 
 		echo '<p>';
-		self::action_button( 'lawp_dry_run', $key, __( 'Check for changes', 'leagueapps-wp' ), 'secondary' );
+		self::action_button( 'lawp_dry_run', $key, __( 'Review changes from LeagueApps', 'leagueapps-wp' ), 'secondary' );
 		echo ' ';
-		self::action_button( 'lawp_apply', $key, __( 'Update the page now', 'leagueapps-wp' ), 'primary' );
-		echo ' ';
-		self::action_button( 'lawp_diagnose', $key, __( 'A team is missing', 'leagueapps-wp' ), 'secondary' );
-		echo '</p>';
-		echo '<p class="description">' . esc_html__( '"Check for changes" writes nothing. It reads LeagueApps and tells you exactly what would change.', 'leagueapps-wp' ) . '</p>';
 
-		self::diagnostic_panel( $key );
-		self::history_panel( $key );
+		if ( null !== $pending ) {
+			self::action_button( 'lawp_apply', $key, __( 'Publish website update', 'leagueapps-wp' ), 'primary' );
+			echo ' ';
+		}
+
+		self::action_button( 'lawp_diagnose', $key, __( 'Report a missing or incorrect team', 'leagueapps-wp' ), 'secondary' );
+		echo '</p>';
+
+		echo '<p class="description">'
+			. esc_html__( 'Reviewing never changes the website. It reads LeagueApps and shows you what would change, and only then can you publish it.', 'leagueapps-wp' )
+			. '</p>';
+
+		$preview = self::preview_url( $key );
+
+		if ( '' !== $preview ) {
+			printf(
+				'<p><a href="%s" target="_blank" rel="noopener">%s</a></p>',
+				esc_url( $preview ),
+				esc_html__( 'View the public page', 'leagueapps-wp' )
+			);
+		}
 
 		echo '</div>';
+	}
+
+	/**
+	 * The status line, in words.
+	 *
+	 * This row used to print the raw status code from the runs table. "PASS" is
+	 * accurate and tells a volunteer nothing about whether the website is right.
+	 */
+	private static function last_checked_sentence( $last ): string {
+		if ( ! is_array( $last ) || ! isset( $last['finished_at'] ) ) {
+			return '<span style="color:#646970;">'
+				. esc_html__( 'Not checked yet. Review changes to see what LeagueApps has.', 'leagueapps-wp' )
+				. '</span>';
+		}
+
+		$when = human_time_diff( (int) strtotime( (string) $last['finished_at'] ), time() );
+		$held = (int) ( $last['held'] ?? 0 );
+		$moved = (int) ( $last['creates'] ?? 0 ) + (int) ( $last['updates'] ?? 0 ) + (int) ( $last['deactivations'] ?? 0 );
+
+		if ( 'PASS' !== (string) ( $last['status'] ?? '' ) ) {
+			return '<span style="color:#b32d2e;">' . esc_html( sprintf(
+				/* translators: %s: human readable time difference, e.g. "2 hours". */
+				__( 'The last check did not finish, %s ago. Open Connection & Diagnostics.', 'leagueapps-wp' ),
+				$when
+			) ) . '</span>';
+		}
+
+		if ( $held > 0 ) {
+			return esc_html( sprintf(
+				/* translators: 1: number of teams, 2: human readable time difference. */
+				_n(
+					'Checked %2$s ago. %1$d team needs a person to look at it before it can go on the website.',
+					'Checked %2$s ago. %1$d teams need a person to look at them before they can go on the website.',
+					$held,
+					'leagueapps-wp'
+				),
+				$held,
+				$when
+			) );
+		}
+
+		if ( 0 === $moved ) {
+			return esc_html( sprintf(
+				/* translators: %s: human readable time difference. */
+				__( 'Checked %s ago. The website matched LeagueApps, so nothing changed.', 'leagueapps-wp' ),
+				$when
+			) );
+		}
+
+		return esc_html( sprintf(
+			/* translators: 1: number of changes, 2: human readable time difference. */
+			_n( 'Checked %2$s ago and published %1$d change.', 'Checked %2$s ago and published %1$d changes.', $moved, 'leagueapps-wp' ),
+			$moved,
+			$when
+		) );
 	}
 
 	/** Stated plainly, because publishing people's details is the risk here. */
@@ -499,8 +719,15 @@ final class Admin {
 			. '</span></p>';
 
 		if ( $config->show_location && $config->show_captain ) {
-			echo '<div class="notice notice-warning inline" style="margin:8px 0;"><p>'
-				. esc_html__( 'Showing a manager name beside a home metro tells the world roughly where that particular person lives. Either alone does not. Consider turning one off.', 'leagueapps-wp' )
+			/*
+			 * Naming the risk and leaving the reader to go and find the control
+			 * is how a warning gets read once and scrolled past. Both checkboxes
+			 * are on this screen, so say which ones.
+			 */
+			echo '<div class="notice notice-warning inline" style="margin:8px 0;"><p><strong>'
+				. esc_html__( 'These two settings together identify a person.', 'leagueapps-wp' )
+				. '</strong><br>'
+				. esc_html__( 'A manager name printed beside a home metro tells a reader roughly where that particular person lives. Either one on its own does not. Clear "Show the manager name" or "Show the home metro" below, then save.', 'leagueapps-wp' )
 				. '</p></div>';
 		}
 	}
@@ -561,7 +788,7 @@ final class Admin {
 
 		echo '<h3>' . esc_html__( 'Recent syncs', 'leagueapps-wp' ) . '</h3>';
 		echo '<table class="widefat striped"><thead><tr>';
-		foreach ( array( __( 'When', 'leagueapps-wp' ), __( 'Result', 'leagueapps-wp' ), __( 'Added', 'leagueapps-wp' ), __( 'Changed', 'leagueapps-wp' ), __( 'Removed', 'leagueapps-wp' ), __( 'Held', 'leagueapps-wp' ), __( 'Notes', 'leagueapps-wp' ) ) as $h ) {
+		foreach ( array( __( 'When', 'leagueapps-wp' ), __( 'Result', 'leagueapps-wp' ), __( 'Added', 'leagueapps-wp' ), __( 'Changed', 'leagueapps-wp' ), __( 'Removed', 'leagueapps-wp' ), __( 'Needed a person', 'leagueapps-wp' ), __( 'Notes', 'leagueapps-wp' ) ) as $h ) {
 			echo '<th>' . esc_html( $h ) . '</th>';
 		}
 		echo '</tr></thead><tbody>';
@@ -586,11 +813,12 @@ final class Admin {
 
 	private static function action_button( string $action, string $event, string $label, string $class ): void {
 		printf(
-			'<form method="post" action="%s" style="display:inline;">%s<input type="hidden" name="action" value="%s"><input type="hidden" name="event" value="%s"><button type="submit" class="button button-%s">%s</button></form>',
+			'<form method="post" action="%s" style="display:inline;">%s<input type="hidden" name="action" value="%s"><input type="hidden" name="event" value="%s"><input type="hidden" name="tab" value="%s"><button type="submit" class="button button-%s">%s</button></form>',
 			esc_url( admin_url( 'admin-post.php' ) ),
 			wp_nonce_field( $action . '_' . $event, '_wpnonce', true, false ),
 			esc_attr( $action ),
 			esc_attr( $event ),
+			esc_attr( self::current_tab() ),
 			esc_attr( $class ),
 			esc_html( $label )
 		);
@@ -598,7 +826,7 @@ final class Admin {
 
 	private static function add_event_form(): void {
 		echo '<div class="card" style="max-width:none;padding:12px 16px;margin-top:16px;">';
-		echo '<h2 style="margin-top:0;">' . esc_html__( 'Add another event', 'leagueapps-wp' ) . '</h2>';
+		echo '<h2 style="margin-top:0;">' . esc_html__( 'Connect another LeagueApps site or season', 'leagueapps-wp' ) . '</h2>';
 		self::discover_form();
 		echo '</div>';
 	}
@@ -615,8 +843,26 @@ final class Admin {
 		set_transient( 'lawp_admin_notice', array( 'type' => $type, 'message' => $message ), 60 );
 	}
 
-	private static function back(): void {
-		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG ) );
+	/**
+	 * Return to the tab the button was on.
+	 *
+	 * Every handler redirects here. With one fixed URL, pressing "Read this
+	 * site" on Display dropped you on Overview with no visible result and the
+	 * confirm step on a tab you had left. The submitting form carries the tab so
+	 * the answer appears where the question was asked.
+	 */
+	private static function back( string $tab = '' ): void {
+		if ( '' === $tab ) {
+			$tab = isset( $_POST['tab'] ) ? sanitize_key( wp_unslash( $_POST['tab'] ) ) : '';
+		}
+
+		$url = admin_url( 'admin.php?page=' . self::SLUG );
+
+		if ( in_array( $tab, self::TABS, true ) ) {
+			$url .= '&tab=' . $tab;
+		}
+
+		wp_safe_redirect( $url );
 		exit;
 	}
 
@@ -771,10 +1017,38 @@ final class Admin {
 		set_transient( 'lawp_admin_report', $reporter->text( $plan, $apply ? 'apply' : 'dry-run' ), 300 );
 
 		if ( ! $apply ) {
+			self::remember_review( $event, $plan );
+
 			self::notice(
 				$plan->safe_to_apply() ? 'success' : 'warning',
-				esc_html__( 'Checked. Nothing was written. The report is below.', 'leagueapps-wp' )
+				esc_html__( 'Reviewed. Nothing on the website has changed yet. If the summary looks right, publish it.', 'leagueapps-wp' )
 			);
+			self::back();
+		}
+
+		/*
+		 * PUBLISH WHAT WAS REVIEWED, OR NOTHING.
+		 *
+		 * Both buttons used to run this method end to end, so "publish" re-read
+		 * LeagueApps and re-planned from scratch. The plan a person approved and
+		 * the plan that got written were two different objects built minutes
+		 * apart, and nothing compared them. A team registering in that gap went
+		 * live without anybody seeing it in a review.
+		 *
+		 * The fingerprint is the source hash plus the decision the planner
+		 * reached. If either moved, this refuses and asks for a fresh review
+		 * rather than publishing something nobody looked at.
+		 */
+		$reviewed = self::pending_review( $event );
+
+		if ( null === $reviewed ) {
+			self::notice( 'warning', esc_html__( 'Review the changes first. Nothing was published.', 'leagueapps-wp' ) );
+			self::back();
+		}
+
+		if ( $reviewed['fingerprint'] !== $plan->fingerprint() ) {
+			self::forget_review( $event );
+			self::notice( 'warning', esc_html__( 'LeagueApps has changed since you reviewed this, so nothing was published. Review the changes again and you will see what is different.', 'leagueapps-wp' ) );
 			self::back();
 		}
 
@@ -793,6 +1067,8 @@ final class Admin {
 			) );
 			self::back();
 		}
+
+		self::forget_review( $event );
 
 		if ( $result->content_changed ) {
 			Settings::bump_generation( $event );
@@ -1026,6 +1302,71 @@ final class Admin {
 	 *
 	 * @return array<string,array{key:string,label:string,order:int,aliases:string[],visible:bool}>
 	 */
+	/* ------------------------------------------------- review, then publish */
+
+	private static function review_key( string $event ): string {
+		return 'lawp_review_' . md5( $event );
+	}
+
+	/**
+	 * Fifteen minutes, because an approval should not outlive the reader's
+	 * memory of what they approved. Expiry is not the safety mechanism, the
+	 * fingerprint is; this only stops a stale button sitting there for a week.
+	 */
+	private static function remember_review( string $event, $plan ): void {
+		$summary = $plan->safe_to_apply()
+			? sprintf(
+				/* translators: %d: number of changes. */
+				_n( '%d change is ready to publish.', '%d changes are ready to publish.', count( $plan->changes ), 'leagueapps-wp' ),
+				count( $plan->changes )
+			)
+			: __( 'Some of this needs a person to look at it. See Connection & Diagnostics.', 'leagueapps-wp' );
+
+		set_transient(
+			self::review_key( $event ),
+			array(
+				'fingerprint' => $plan->fingerprint(),
+				'summary'     => $summary,
+				'at'          => time(),
+			),
+			15 * MINUTE_IN_SECONDS
+		);
+	}
+
+	private static function pending_review( string $event ): ?array {
+		$stored = get_transient( self::review_key( $event ) );
+
+		return ( is_array( $stored ) && isset( $stored['fingerprint'] ) ) ? $stored : null;
+	}
+
+	private static function forget_review( string $event ): void {
+		delete_transient( self::review_key( $event ) );
+	}
+
+	/**
+	 * A link to the page this event is actually on, so "did that work?" does not
+	 * involve hunting through the menu.
+	 *
+	 * Matches the block and the shortcode, since either may be what is on the
+	 * page. Returns an empty string when the event is not published anywhere,
+	 * which is a normal state and not an error worth reporting.
+	 */
+	private static function preview_url( string $event ): string {
+		global $wpdb;
+
+		$id = $wpdb->get_var( $wpdb->prepare(
+			"SELECT ID FROM {$wpdb->posts}
+			 WHERE post_status = 'publish'
+			   AND post_type IN ( 'page', 'post' )
+			   AND ( post_content LIKE %s OR post_content LIKE %s )
+			 ORDER BY post_type = 'page' DESC, ID ASC LIMIT 1",
+			'%' . $wpdb->esc_like( '[leagueapps_teams event="' . $event . '"' ) . '%',
+			'%' . $wpdb->esc_like( '"event":"' . $event . '"' ) . '%'
+		) );
+
+		return $id ? (string) get_permalink( (int) $id ) : '';
+	}
+
 	public static function divisions_from_input( array $labels, array $sources, array $orders ): array {
 		$divisions = array();
 

@@ -37,6 +37,34 @@ define( 'LAWP_FILE', __FILE__ );
  */
 
 /*
+ * REFUSE TO LOAD ON A PHP THIS PLUGIN CANNOT PARSE.
+ *
+ * `Requires PHP` in the header above only gates the UPDATER. A copy already on
+ * disk is parsed on every request regardless, and this plugin uses readonly
+ * promoted properties, so on PHP 8.0 the parse fails before any of it runs.
+ * A parse error in a file required this early takes down wp-admin too, so you
+ * cannot log in to deactivate the thing that is breaking the site.
+ *
+ * This bit us on a real host: WP-CLI was 8.2 and the web pool was 8.0. Every
+ * command-line check passed and every browser request returned a 500.
+ *
+ * Everything in this block is PHP 7 syntax on purpose. A version gate written
+ * in the syntax it is guarding against cannot run.
+ */
+if ( version_compare( PHP_VERSION, '8.1', '<' ) ) {
+	add_action(
+		'admin_notices',
+		function () {
+			echo '<div class="notice notice-error"><p><strong>LeagueApps for WordPress</strong> needs PHP 8.1 or newer. This server runs PHP '
+				. esc_html( PHP_VERSION )
+				. '. The plugin has not loaded, and nothing it publishes will update until the PHP version is raised.</p></div>';
+		}
+	);
+
+	return;
+}
+
+/*
  * A four-line autoloader instead of Composer's.
  *
  * Composer is a development dependency here: it runs the tests. Shipping
