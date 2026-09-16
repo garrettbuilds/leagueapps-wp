@@ -180,7 +180,7 @@ opt-in per field, configured by the operator, never assumed.
 
 ### LeagueApps `location` is the venue
 
-Top-level `location` is `Krieg Softball Complex`, not a person or a team. Worth
+Top-level `location` is `Riverside Sports Complex`, not a person or a team. Worth
 knowing before wiring anything to that name.
 
 ### A preset is a starting point
@@ -197,7 +197,7 @@ Longest-alias-first was introduced so "Legends D" would not be read as "D". It
 failed on a real program:
 
 ```
-"2026 Texas Hoedown (Legends D Division)"
+"2026 Summer Classic (Legends D Division)"
     "d division"  10 characters   ← won
     "legends d"    9 characters
 ```
@@ -216,7 +216,7 @@ Suggesting a program filter from the longest opening every current program share
 produced nothing, because a 2017 tournament is still flagged live on that Site:
 
 ```
-"2026 Texas Hoedown (C Division)"
+"2026 Summer Classic (C Division)"
 "2017 Open (NAGAAA) Tournament OLD"
 shared opening: "20"
 ```

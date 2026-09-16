@@ -122,10 +122,10 @@ final class DivisionMapperTest extends TestCase {
 	}
 
 	public static function compound_division_names(): iterable {
-		yield 'the real one'      => array( '2026 Texas Hoedown (Legends D Division)', 'legends' );
+		yield 'the real one'      => array( '2026 Summer Classic (Legends D Division)', 'legends' );
 		yield 'without brackets'  => array( 'Legends D Division 2026', 'legends' );
 		yield 'masters variant'   => array( '2016 Masters D Division', 'legends' );
-		yield 'plain D still D'   => array( '2026 Texas Hoedown (D Division)', 'd' );
+		yield 'plain D still D'   => array( '2026 Summer Classic (D Division)', 'd' );
 		yield 'open D still D'    => array( 'Open D Division Fall 2026', 'd' );
 		yield 'womens D is womens'=> array( "2018 Women's D/E Division", 'womens' );
 	}

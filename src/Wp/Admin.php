@@ -333,7 +333,7 @@ final class Admin {
 			'<tr><th scope="row"><label for="lawp-title">%s</label></th><td><input type="text" id="lawp-title" name="title" class="regular-text" value="%s" required> <p class="description">%s</p></td></tr>',
 			esc_html__( 'What is this?', 'leagueapps-wp' ),
 			esc_attr( $suggested ),
-			esc_html__( 'How it appears in this admin. For example: Texas Hoedown 2026.', 'leagueapps-wp' )
+			esc_html__( 'How it appears in this admin. For example: Summer Classic 2026.', 'leagueapps-wp' )
 		);
 		printf(
 			'<tr><th scope="row"><label for="lawp-filter">%s</label></th><td><input type="text" id="lawp-filter" name="program_filter" class="regular-text" value="%s"> <p class="description">%s</p></td></tr>',
@@ -404,12 +404,12 @@ final class Admin {
 	 * NOT a common prefix across every current program, which is what this did
 	 * first and which produced nothing at all on the Site it was built against:
 	 * a 2017 tournament was still flagged live, so the longest shared opening of
-	 * "2026 Texas Hoedown (C Division)" and "2017 Open (NAGAAA) Tournament OLD"
+	 * "2026 Summer Classic (C Division)" and "2017 Open (NAGAAA) Tournament OLD"
 	 * was "20". One stale program silently emptied the suggestion.
 	 *
 	 * The newest program with its trailing parenthetical removed is both more
-	 * robust and closer to what somebody would type: "2026 Texas Hoedown (C
-	 * Division)" becomes "2026 Texas Hoedown".
+	 * robust and closer to what somebody would type: "2026 Summer Classic (C
+	 * Division)" becomes "2026 Summer Classic".
 	 *
 	 * @param array<int,array{id:int,name:string}> $programs Newest first.
 	 */
